@@ -60,7 +60,7 @@ private val LightColorScheme = lightColorScheme(
 fun TidyLinkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Material You: derive colors from the user's wallpaper. This is API 31+
-    // ONLY — the dynamic*ColorScheme functions read android.R.color.system_*
+    // ONLY - the dynamic*ColorScheme functions read android.R.color.system_*
     // resources that don't exist below S, so calling them on Android 10/11
     // throws at runtime. minSdk is 29, so the check is load-bearing: don't
     // drop it. Below S, and for callers that opt out, the Ocean/Coral brand

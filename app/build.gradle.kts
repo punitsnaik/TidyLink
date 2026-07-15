@@ -36,7 +36,7 @@ android {
     defaultConfig {
         applicationId = "dev.punit.tidylink"
         // Android 10. Two things stop being guaranteed below API 31/34, and both
-        // are handled rather than assumed — don't "simplify" either back:
+        // are handled rather than assumed - don't "simplify" either back:
         //   - Material You dynamic color is API 31+. TidyLinkTheme falls back to
         //     the Ocean/Coral palettes below that.
         //   - dataExtractionRules is API 31+. res/xml/backup_rules.xml carries
@@ -49,7 +49,7 @@ android {
         // versionCode is what Android compares to decide "is this an upgrade?"
         // 1 is still free because no build has reached a real user yet: v1.0 is
         // the first PUBLIC release. From the moment it ships, this number must
-        // increase on every release and can never be reused or lowered — a
+        // increase on every release and can never be reused or lowered - a
         // reused versionCode reads as "not an upgrade", so installs of the old
         // APK are stranded with no path forward. versionName is the cosmetic
         // string users see; keep it in step with the v* git tag that triggers
@@ -76,11 +76,11 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             } else {
                 // Fall back to the debug key so `assembleRelease` still yields
-                // an installable APK for local testing — but never let that
+                // an installable APK for local testing - but never let that
                 // happen silently. A debug-signed APK carries the universally
                 // known android/android key: anyone can forge an update for it,
                 // and installs can never be upgraded by the real key afterwards.
-                // Tagged releases cannot reach this branch — release.yml writes
+                // Tagged releases cannot reach this branch - release.yml writes
                 // keystore.properties and then verifies the signer isn't debug.
                 signingConfig = signingConfigs.getByName("debug")
                 project.logger.warn(
@@ -102,7 +102,7 @@ android {
             //
             // NOTE: proguardFiles() is the ONLY way to hand rules to R8. An
             // earlier version of this file kept them in src/main/keepRules/,
-            // which is not an AGP source-set convention — R8 never read them
+            // which is not an AGP source-set convention - R8 never read them
             // and silently stripped every kotlinx-serialization $$serializer,
             // breaking AI classification and JSON import/export in release
             // builds only. Always smoke-test a release build (save → scrape →
@@ -168,7 +168,7 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.okhttp)
-    // NOTE: deliberately no okhttp logging-interceptor — it would log
+    // NOTE: deliberately no okhttp logging-interceptor - it would log
     // Authorization headers (the user's API keys) if ever wired in.
     implementation(libs.kotlinx.serialization.json)
 
@@ -182,7 +182,7 @@ dependencies {
 
     testImplementation(libs.junit)
 
-    // Room migration tests — instrumented, because ALTER TABLE DROP COLUMN
+    // Room migration tests - instrumented, because ALTER TABLE DROP COLUMN
     // (MIGRATION_3_4) needs SQLite 3.35+ and Robolectric bundles 3.32.2.
     // Run with: ./gradlew connectedDebugAndroidTest (needs a device/emulator).
     androidTestImplementation(libs.junit)

@@ -15,7 +15,7 @@ import dev.punit.tidylink.TidyLinkApplication
  * WorkManager's database at enqueue time, so a share can no longer be lost
  * if the (invisible, immediately-finishing) [dev.punit.tidylink.ShareReceiverActivity]
  * process dies before the inline save completes. The save itself is
- * idempotent — whichever of the inline path or this worker runs second just
+ * idempotent - whichever of the inline path or this worker runs second just
  * finds the existing row.
  */
 class SaveUrlWorker(

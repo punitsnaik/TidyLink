@@ -3,7 +3,7 @@ package dev.punit.tidylink.data.ai
 /**
  * Defensive extraction of JSON from LLM chat output. Free models don't all
  * support forced-JSON responses, so markdown fences and chatter around the
- * payload must be tolerated. Pure functions — unit-tested on the JVM.
+ * payload must be tolerated. Pure functions - unit-tested on the JVM.
  */
 internal object LlmTextParsing {
 

@@ -33,7 +33,7 @@ data class LlmProvider(
  * it last failed, and WHY, so quota/key problems are visible in Settings.
  *
  * [lastError] matters more than it looks: without a reason surfaced in the UI,
- * a stripped-serializer or revoked-key failure are indistinguishable — both
+ * a stripped-serializer or revoked-key failure are indistinguishable - both
  * just read "Failing". See [ProviderFailure].
  */
 @Serializable
@@ -53,14 +53,14 @@ data class ProviderHealth(
 /**
  * On-device storage for the user's LLM providers. The provider list
  * (containing API keys) is encrypted with an Android Keystore key before it
- * touches SharedPreferences — see [KeyStoreCrypto] — and the prefs file is
+ * touches SharedPreferences - see [KeyStoreCrypto] - and the prefs file is
  * additionally excluded from cloud backup and device transfer. Keys are
  * entered in-app (Settings → AI providers) and never leave the device.
  *
  * Entries written by pre-encryption versions of the app are migrated to the
  * encrypted format on first load. If decryption ever fails (e.g. the
  * Keystore key was invalidated), the list resets to empty and the user must
- * re-enter their keys — the data is unrecoverable by design.
+ * re-enter their keys - the data is unrecoverable by design.
  */
 class LlmProviderStore(context: Context) {
 
@@ -125,7 +125,7 @@ class LlmProviderStore(context: Context) {
         )
     }
 
-    /** [reason] is shown verbatim in the provider sheet — keep it short. */
+    /** [reason] is shown verbatim in the provider sheet - keep it short. */
     fun recordFailure(id: String, reason: String) {
         val current = _health.value[id] ?: ProviderHealth()
         persistHealth(
@@ -143,7 +143,7 @@ class LlmProviderStore(context: Context) {
         writeEncrypted(list)
     }
 
-    /** Prefs write only — safe to call before [_providers] exists (migration). */
+    /** Prefs write only - safe to call before [_providers] exists (migration). */
     private fun writeEncrypted(list: List<LlmProvider>) {
         val encrypted = try {
             Base64.encodeToString(
@@ -166,7 +166,7 @@ class LlmProviderStore(context: Context) {
                 val plain = KeyStoreCrypto.decrypt(Base64.decode(blob, Base64.NO_WRAP))
                 json.decodeFromString<List<LlmProvider>>(String(plain, Charsets.UTF_8))
             } catch (e: Exception) {
-                emptyList() // Keystore key invalidated — keys must be re-entered.
+                emptyList() // Keystore key invalidated - keys must be re-entered.
             }
         }
         // Migration: plaintext entries from pre-encryption versions.

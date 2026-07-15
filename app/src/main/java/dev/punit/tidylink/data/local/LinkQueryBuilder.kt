@@ -21,7 +21,7 @@ enum class SortOrder(internal val orderBy: String) {
 
 /**
  * Builds the paged library query: optional FTS search, optional category
- * filter, chosen sort — all executed in SQLite instead of in memory.
+ * filter, chosen sort - all executed in SQLite instead of in memory.
  * Pinned links float above the rest in every sort order.
  */
 object LinkQueryBuilder {

@@ -6,7 +6,7 @@
    device, so restored ciphertext could never be decrypted (LlmProviderStore
    .load() would catch the failure and reset to an empty list). Backing it up
    would ship the user's key material off-device for zero benefit. Excluded,
-   the user re-enters their keys on the new device — same end state, nothing
+   the user re-enters their keys on the new device - same end state, nothing
    leaves. Links themselves remain backed up.
 -->
 <data-extraction-rules>

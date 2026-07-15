@@ -359,7 +359,7 @@ internal fun openLink(context: Context, url: String) {
  * minSdk 29 and then does *nothing* on Android 10: the flag is ignored,
  * startActivity succeeds into a browser, no ActivityNotFoundException is
  * thrown, and the Custom Tab below is never reached. Silent, and only on
- * Android 10 — hence the explicit version split rather than one clever call.
+ * Android 10 - hence the explicit version split rather than one clever call.
  */
 private fun openInNativeApp(context: Context, uri: Uri): Boolean {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -375,8 +375,8 @@ private fun openInNativeApp(context: Context, uri: Uri): Boolean {
     }
 
     // API 29: ask the package manager which handlers are browsers, and take
-    // the first that isn't. Package-visibility filtering doesn't apply here —
-    // it's enforced from API 30, which this branch never runs on — so no
+    // the first that isn't. Package-visibility filtering doesn't apply here -
+    // it's enforced from API 30, which this branch never runs on - so no
     // <queries> entry is needed.
     val pm = context.packageManager
     val browserProbe = Intent(Intent.ACTION_VIEW, Uri.fromParts("http", "", null))

@@ -94,18 +94,18 @@ class LinkRepository(
 
     fun getCategories(): Flow<List<CategoryCount>> = linkDao.getCategories()
 
-    /** Links still awaiting their first scrape — drives the progress banner. */
+    /** Links still awaiting their first scrape - drives the progress banner. */
     fun pendingEnrichmentCount(): Flow<Int> = linkDao.countNeverScraped()
 
     /**
-     * True when links are still waiting for their first scrape — checked at
+     * True when links are still waiting for their first scrape - checked at
      * app start so an interrupted sweep (process killed mid-import, or rows
      * upgraded from a pre-v3 schema) is resumed instead of leaving the
      * "fetching details" banner up with no worker behind it.
      */
     suspend fun hasPendingEnrichment(): Boolean = linkDao.countNeverScrapedOnce() > 0
 
-    /** Live view of a single link — keeps the detail sheet current. */
+    /** Live view of a single link - keeps the detail sheet current. */
     fun observeLink(id: String): Flow<LinkEntity?> = linkDao.observeById(id)
 
     suspend fun getLinksByIds(ids: List<String>): List<LinkEntity> = linkDao.getByIds(ids)
@@ -280,7 +280,7 @@ class LinkRepository(
             category = classification?.category?.takeIf { it.isNotBlank() }
                 ?.let { resolveCategory(it, categories) } ?: existing.category,
             // takeIf: an empty tag list / summary is the model saying nothing,
-            // not saying "remove what you had" — never downgrade on it.
+            // not saying "remove what you had" - never downgrade on it.
             tags = classification?.tags?.takeIf { it.isNotEmpty() } ?: existing.tags,
             aiSummary = classification?.aiSummary?.takeIf { it.isNotBlank() }
                 ?: existing.aiSummary,
@@ -293,7 +293,7 @@ class LinkRepository(
     /**
      * Bulk import: canonicalizes and de-duplicates the URLs, inserts all new
      * ones as placeholders in a single write, then hands scraping and
-     * classification to [EnrichmentSweepWorker] — so a 1,000-link import
+     * classification to [EnrichmentSweepWorker] - so a 1,000-link import
      * survives the user leaving the app, Doze, and process death.
      */
     suspend fun importUrls(rawUrls: List<String>): ImportSummary {
@@ -439,7 +439,7 @@ class LinkRepository(
     /**
      * One-shot cleanup for a category list that has grown messy, in two
      * passes:
-     *  1. OFFLINE: merges spelling variants (case/punctuation/plural) —
+     *  1. OFFLINE: merges spelling variants (case/punctuation/plural) -
      *     always works, no network or quota needed.
      *  2. AI: when more than [MAX_CATEGORIES] remain, asks the LLM for a
      *     semantic merge mapping ("Movies"/"Film") and renames in bulk.
@@ -471,8 +471,8 @@ class LinkRepository(
     }
 
     /**
-     * Merges categories that are the same words in disguise — "Ai tool",
-     * "AI Tools", "ai-tools" — into whichever variant has the most links.
+     * Merges categories that are the same words in disguise - "Ai tool",
+     * "AI Tools", "ai-tools" - into whichever variant has the most links.
      * Pure string matching; needs no AI quota.
      */
     private suspend fun mergeCategoryVariants(): Int {
@@ -505,7 +505,7 @@ class LinkRepository(
     // --- Export / import ---------------------------------------------------
 
     /**
-     * Streams the whole library as JSON to [stream] — avoids building a
+     * Streams the whole library as JSON to [stream] - avoids building a
      * second full-library String in memory on top of the entity list.
      */
     @OptIn(ExperimentalSerializationApi::class)
@@ -522,7 +522,7 @@ class LinkRepository(
         val links = withContext(Dispatchers.IO) {
             json.decodeFromStream<List<LinkEntity>>(stream)
         }
-        // Older backups predate the dedupeKey column — compute it on the way in.
+        // Older backups predate the dedupeKey column - compute it on the way in.
         linkDao.upsertAll(links.map { it.withDedupeKey() })
         links.size
     } catch (e: Exception) {
@@ -538,7 +538,7 @@ class LinkRepository(
      * because of a transient rate limit but because there is nothing to call,
      * so a retry chain (5 attempts, backing off to 8h, each waking the device
      * on a network constraint) could only ever burn battery. Running without
-     * an API key is a supported mode — the UI offers to add one via a banner.
+     * an API key is a supported mode - the UI offers to add one via a banner.
      */
     private fun scheduleClassificationRetry() {
         if (!aiService.isConfigured()) return
@@ -549,7 +549,7 @@ class LinkRepository(
                     .build()
             )
             // Free-tier quotas are often per-day, so back off in large steps:
-            // 30m, 1h, 2h, 4h, 8h — enough to reach the next quota reset.
+            // 30m, 1h, 2h, 4h, 8h - enough to reach the next quota reset.
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(appContext).enqueueUniqueWork(
@@ -587,7 +587,7 @@ class LinkRepository(
 
     /**
      * Snaps an LLM-returned category onto an existing one when they differ
-     * only by case, punctuation, spacing, or a trailing plural — the main
+     * only by case, punctuation, spacing, or a trailing plural - the main
      * source of near-duplicate categories. [existingCategories] is passed in
      * (rather than queried here) so batch callers pay for one lookup per
      * chunk instead of one per link.

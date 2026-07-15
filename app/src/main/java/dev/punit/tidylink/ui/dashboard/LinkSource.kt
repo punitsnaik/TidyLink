@@ -39,7 +39,7 @@ internal fun linkSourceOf(url: String): LinkSource {
     }
 }
 
-/** Bare domain ("autodraft.in") — favicon lookups and title fallbacks. */
+/** Bare domain ("autodraft.in") - favicon lookups and title fallbacks. */
 internal fun domainOf(url: String): String =
     runCatching { url.toUri().host.orEmpty() }
         .getOrDefault("")

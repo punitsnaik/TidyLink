@@ -45,7 +45,7 @@ import java.io.OutputStream
 sealed interface UiMessage {
     // @param: pins today's behaviour (annotate the constructor parameter only).
     // Without it, Kotlin warns that a future release will also apply these to
-    // the backing field — see KT-73255.
+    // the backing field - see KT-73255.
     data class Text(
         @param:StringRes val res: Int,
         val args: List<Any> = emptyList(),
@@ -165,7 +165,7 @@ class LinkViewModel(
     /** Immediately reflected in the UI; the actual FTS query is debounced. */
     val searchQueryInput: StateFlow<String> = searchQuery.asStateFlow()
 
-    /** Live view of a single link — keeps the detail sheet current. */
+    /** Live view of a single link - keeps the detail sheet current. */
     fun observeLink(id: String): Flow<LinkEntity?> = repository.observeLink(id)
 
     fun search(query: String) {
@@ -274,7 +274,7 @@ class LinkViewModel(
                 message.value = when {
                     result.refreshed == 0 -> UiMessage.Text(R.string.msg_all_up_to_date)
                     // No provider configured: nothing will retry, so don't
-                    // promise it — point at the fix instead.
+                    // promise it - point at the fix instead.
                     result.aiUnavailable -> UiMessage.Text(
                         R.string.msg_refreshed_no_provider,
                         listOf(result.refreshed, result.unclassified),
@@ -351,8 +351,8 @@ class LinkViewModel(
      * Extracts every http(s) URL from arbitrary text (e.g. a .txt file of
      * links) and bulk-imports them: new links appear immediately as
      * placeholders, then a WorkManager sweep scrapes and classifies them in
-     * the background (survives leaving the app). Duplicates — including
-     * tracking-param variants — are skipped. Returns how many distinct URLs
+     * the background (survives leaving the app). Duplicates - including
+     * tracking-param variants - are skipped. Returns how many distinct URLs
      * were found in the text.
      */
     fun importUrlsFromText(text: String): Int {
@@ -389,7 +389,7 @@ class LinkViewModel(
 
     /**
      * Merges the sprawling category list into a small set of broad ones
-     * (single LLM call + bulk renames). The UI asks for confirmation first —
+     * (single LLM call + bulk renames). The UI asks for confirmation first -
      * renames are not undoable.
      */
     fun tidyCategories() {
@@ -446,7 +446,7 @@ class LinkViewModel(
 
     /**
      * Live-checks an unsaved provider. [onResult] gets null on success, or a
-     * short human-readable reason — so a bad key is caught at paste time
+     * short human-readable reason - so a bad key is caught at paste time
      * rather than surfacing as a silent "Failing" much later.
      */
     fun testLlmProvider(

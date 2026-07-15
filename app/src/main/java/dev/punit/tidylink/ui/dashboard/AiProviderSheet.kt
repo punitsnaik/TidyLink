@@ -63,7 +63,7 @@ import dev.punit.tidylink.data.settings.ProviderHealth
  * Prefills for the supported OpenAI-compatible endpoints.
  *
  * Model IDs are pinned to currently-shipping releases and must be revisited
- * when a provider retires one — a stale ID surfaces as an HTTP 404 on every
+ * when a provider retires one - a stale ID surfaces as an HTTP 404 on every
  * call. [baseUrl] == null marks the "Custom" option, which reveals the URL
  * field instead of prefilling it.
  */
@@ -102,7 +102,7 @@ private sealed interface TestState {
  * categorization. Keys are stored encrypted and live only on the device.
  *
  * List order is fallback order: the first provider is tried first, and the
- * next takes over when it is rate-limited — hence the reorder controls.
+ * next takes over when it is rate-limited - hence the reorder controls.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -214,7 +214,7 @@ fun AiProviderSheet(
 
             Spacer(Modifier.height(12.dp))
 
-            // The URL is fixed for a known preset, so only Custom needs it —
+            // The URL is fixed for a known preset, so only Custom needs it -
             // hiding it keeps the most error-prone field off the common path.
             if (isCustom) {
                 OutlinedTextField(
