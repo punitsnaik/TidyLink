@@ -1,0 +1,7 @@
+# Puts a "Sponsor" button on the repo page and in the sidebar.
+#
+# The button only appears once the GitHub Sponsors profile is APPROVED —
+# enrolling is a separate step at https://github.com/sponsors (bank details,
+# identity check, and a tax form; W-8BEN for non-US individuals). Until then
+# this file is inert, not broken.
+github: punitsnaik
