@@ -222,11 +222,13 @@ Release builds are signed with a keystore that must live **outside** version con
 
 3. `./gradlew assembleRelease`
 
-**Via CI (the real path):** pushing a `v*` tag triggers [`release.yml`](.github/workflows/release.yml), which builds, signs, verifies, and attaches the APK to a GitHub Release. It needs these repository secrets:
+   A caveat that has cost real time here: this is a Java `.properties` file, and it is read literally — but the *shell you write it with* is not. `echo "storePassword=abc\$1234" > keystore.properties` lets zsh expand `$1234` to nothing, silently storing a truncated password. The build then fails with the thoroughly misleading `keystore password was incorrect`. Use a quoted heredoc (`<<'EOF'`), an editor, or `read -s` — and prefer a password with no `$` in it at all.
+
+**Via CI (the real path):** pushing a `v*` tag triggers [`release.yml`](.github/workflows/release.yml), which builds, signs, verifies, and attaches the APK to a GitHub Release. The tag drives the naming — `v1.0` publishes a Release titled **TidyLink-1.0** with **`TidyLink-1.0.apk`** attached — so there is nothing to rename by hand. It needs these repository secrets:
 
 | Secret | Value |
 |---|---|
-| `RELEASE_KEYSTORE_BASE64` | `base64 -i release.jks` |
+| `RELEASE_KEYSTORE_BASE64` | `base64 -i release.jks` — re-upload whenever the keystore file changes, **including a password rotation**: `keytool -storepasswd` rewrites the `.jks` bytes, so the password and this secret must always be updated together |
 | `RELEASE_STORE_PASSWORD` | |
 | `RELEASE_KEY_ALIAS` | |
 | `RELEASE_KEY_PASSWORD` | |
