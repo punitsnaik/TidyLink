@@ -11,7 +11,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Invisible trampoline for the system share sheet. Captures the shared URL,
- * hands the save to the application scope, and finishes immediately — the
+ * hands the save to the application scope, and finishes immediately - the
  * sharing app stays in the foreground and TidyLink's UI never opens.
  *
  * Uses Theme.NoDisplay, which requires finish() before onResume() completes.

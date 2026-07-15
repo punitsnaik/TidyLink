@@ -27,10 +27,10 @@ class LinkScraperService {
      *
      * Some sites (Instagram, Facebook, X/Twitter…) show a login wall to normal
      * browsers-without-cookies but still serve OG tags to social link-preview
-     * crawlers — so if the first attempt comes back thin, we retry with the
+     * crawlers - so if the first attempt comes back thin, we retry with the
      * facebookexternalhit user agent.
      *
-     * Never throws — on total failure it returns a minimal [ScrapedData] built
+     * Never throws - on total failure it returns a minimal [ScrapedData] built
      * from the URL itself, so the save pipeline can still proceed.
      */
     suspend fun scrapeMetadata(url: String): ScrapedData = withContext(Dispatchers.IO) {
@@ -69,7 +69,7 @@ class LinkScraperService {
     private fun isYouTubeUrl(url: String): Boolean =
         listOf("youtube.com", "youtu.be").any { url.contains(it, ignoreCase = true) }
 
-    /** Blank, "undefined", or URL-shaped — i.e. not a real page title. */
+    /** Blank, "undefined", or URL-shaped - i.e. not a real page title. */
     private fun isJunkTitle(title: String): Boolean {
         val t = title.trim()
         return t.isBlank() ||
@@ -153,7 +153,7 @@ class LinkScraperService {
         const val BROWSER_UA =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
 
-        /** Social preview crawler UA — many walled sites still serve OG tags to it. */
+        /** Social preview crawler UA - many walled sites still serve OG tags to it. */
         const val CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
     }
 }

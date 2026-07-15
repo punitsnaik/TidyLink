@@ -10,7 +10,7 @@ import androidx.room.FtsOptions
  * Note: Room supports FTS3/FTS4 natively (not FTS5). FTS4 with the unicode61
  * tokenizer gives fast, diacritic-insensitive full-text search. Because
  * [contentEntity] is set, Room auto-generates triggers that keep this table
- * in sync with `links` — no manual dual writes needed.
+ * in sync with `links` - no manual dual writes needed.
  */
 @Fts4(contentEntity = LinkEntity::class, tokenizer = FtsOptions.TOKENIZER_UNICODE61)
 @Entity(tableName = "links_fts")

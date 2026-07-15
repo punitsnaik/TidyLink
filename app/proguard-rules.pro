@@ -1,6 +1,6 @@
 # R8 keep rules for TidyLink.
 #
-# Wired up via proguardFiles() in app/build.gradle.kts — that is the only
+# Wired up via proguardFiles() in app/build.gradle.kts - that is the only
 # mechanism that reaches R8. Do not move these rules to a bare directory
 # (e.g. src/main/keepRules/); AGP has no such convention and R8 will silently
 # ignore the file, stripping serializers and breaking release builds only.

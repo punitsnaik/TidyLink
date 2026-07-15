@@ -20,7 +20,7 @@ keystore.properties
 *.jks
 *.keystore
 
-# Local working notes — deliberately untracked. Listed here so a `git add -A`
+# Local working notes - deliberately untracked. Listed here so a `git add -A`
 # (e.g. during a history squash) can't sweep them into the repo.
 CLAUDE.md
 RELEASE_GUIDE.md

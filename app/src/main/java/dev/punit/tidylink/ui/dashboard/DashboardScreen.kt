@@ -111,12 +111,12 @@ import kotlinx.coroutines.withContext
 /** Destinations reachable from the bottom navigation bar. */
 private enum class DashboardTab { Links, Settings }
 
-/** Cap on .txt bulk import — ~100k URLs, far past any real bookmark export. */
+/** Cap on .txt bulk import - ~100k URLs, far past any real bookmark export. */
 private const val MAX_IMPORT_BYTES = 5L * 1024 * 1024
 
 /**
  * File size for a content:// URI, or null when the provider doesn't report one
- * (some don't). Null means "unknown", not "empty" — callers must not treat an
+ * (some don't). Null means "unknown", not "empty" - callers must not treat an
  * unknown size as a reason to block.
  */
 private fun android.content.ContentResolver.fileSize(uri: android.net.Uri): Long? =
@@ -129,7 +129,7 @@ private fun android.content.ContentResolver.fileSize(uri: android.net.Uri): Long
         }
     }
 
-/** Public repository — linked from Settings → About. */
+/** Public repository - linked from Settings → About. */
 private const val REPO_URL = "https://github.com/punitsnaik/TidyLink"
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -165,7 +165,7 @@ fun DashboardScreen(
     val gridState = rememberLazyGridState()
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
-    // (added manually, shared in, or imported) — but not on deletes.
+    // (added manually, shared in, or imported) - but not on deletes.
     val firstLinkId = lazyLinks.itemSnapshotList.items.firstOrNull()?.id
     var lastTopId by remember { mutableStateOf(firstLinkId) }
     var lastCount by remember { mutableIntStateOf(lazyLinks.itemCount) }
@@ -248,7 +248,7 @@ fun DashboardScreen(
         scope.launch {
             val text = try {
                 // Size-check BEFORE reading. readText() allocates the whole file
-                // as one String, and blowing the heap raises OutOfMemoryError —
+                // as one String, and blowing the heap raises OutOfMemoryError -
                 // an Error, not an Exception, so the catch below cannot save us;
                 // the process just dies. Cheaper to refuse a silly file (a video
                 // renamed to .txt) than to crash on it. 5MB is ~100k URLs.
@@ -343,7 +343,7 @@ fun DashboardScreen(
                         )
                     },
                     // Sort and Refresh are ACTIONS, so they live in the app
-                    // bar — not in the bottom navigation bar, which is for
+                    // bar - not in the bottom navigation bar, which is for
                     // destinations only.
                     actions = {
                         if (currentTab == DashboardTab.Links) {
@@ -431,7 +431,7 @@ fun DashboardScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
 
-                // A failed query must not read as "0 results" — that's how a
+                // A failed query must not read as "0 results" - that's how a
                 // broken search query hid in plain sight.
                 if (lazyLinks.loadState.refresh is LoadState.Error) {
                     Text(
@@ -609,7 +609,7 @@ fun DashboardScreen(
         )
     }
 
-    // Tidy-up is a bulk, non-undoable rename — always confirm first.
+    // Tidy-up is a bulk, non-undoable rename - always confirm first.
     if (showTidyConfirm) {
         AlertDialog(
             onDismissRequest = { showTidyConfirm = false },
@@ -852,7 +852,7 @@ private val SortIcon: ImageVector by lazy {
 /**
  * Category filter that scales: only the busiest categories get a chip
  * (sorted by link count), and an "All categories" chip opens a bottom
- * sheet with the full list — no more endless horizontal swiping.
+ * sheet with the full list - no more endless horizontal swiping.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?><!--
    Backup rules for API 29–30. These devices predate dataExtractionRules
    (API 31+, see data_extraction_rules.xml) and read fullBackupContent instead,
-   so the API-key exclusion has to be stated a second time here — the two files
+   so the API-key exclusion has to be stated a second time here - the two files
    are not alternatives, they cover different OS versions. Change one, change
    the other, or Android 10/11 users silently get the weaker behaviour.
 
@@ -10,7 +10,7 @@
    ciphertext could never be decrypted on the new device anyway
    (LlmProviderStore.load() catches the failure and resets to empty), so
    backing it up would ship key material off-device for zero benefit. Excluded,
-   the user re-enters their keys — same end state, nothing leaves.
+   the user re-enters their keys - same end state, nothing leaves.
 
    Links themselves remain backed up.
 -->
