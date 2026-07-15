@@ -1,0 +1,26 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.kotlin/
+
+# Built artifacts are distributed via GitHub Releases, never committed.
+/app/release/
+*.apk
+*.aab
+
+# Release signing (never commit)
+keystore.properties
+*.jks
+*.keystore
+
+# Local working notes — deliberately untracked. Listed here so a `git add -A`
+# (e.g. during a history squash) can't sweep them into the repo.
+CLAUDE.md
+RELEASE_GUIDE.md
