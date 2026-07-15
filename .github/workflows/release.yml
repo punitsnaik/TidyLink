@@ -133,13 +133,34 @@ jobs:
           fi
           echo "OK — release APK is signed with the expected key."
 
+      # Derived once, used for both the Release title and the APK filename, so
+      # the two can never drift apart. The tag drives everything: v1.0 ->
+      # "TidyLink-1.0" + TidyLink-1.0.apk, v1.1 -> "TidyLink-1.1", and so on.
+      # No edit needed per release.
+      #
+      # Read via env, not "${{ }}" straight into the script: `${{ }}` pastes
+      # the value into the shell source, so a tag containing a metacharacter
+      # would be interpreted rather than used. Same class of bug as the
+      # signing-secret heredoc above — see the comment there.
+      - name: Derive release name from tag
+        id: rel
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${REF_NAME#v}"
+          echo "name=TidyLink-$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk tidylink-${{ github.ref_name }}.apk
+        env:
+          RELEASE_NAME: ${{ steps.rel.outputs.name }}
+        run: cp app/build/outputs/apk/release/app-release.apk "$RELEASE_NAME.apk"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: tidylink-${{ github.ref_name }}.apk
+          name: ${{ steps.rel.outputs.name }}
+          files: ${{ steps.rel.outputs.name }}.apk
           generate_release_notes: true
 
       - name: Clean up signing material
