@@ -1,0 +1,221 @@
+<resources>
+    <string name="app_name">TidyLink</string>
+
+    <!-- Top bar / navigation -->
+    <string name="title_settings">Settings</string>
+    <string name="selected_count">%1$d selected</string>
+    <string name="action_exit_selection">Exit selection</string>
+    <string name="action_move_to_category">Move to category</string>
+    <string name="action_delete_selected">Delete selected</string>
+    <string name="action_sort">Sort</string>
+    <string name="action_refresh">Fetch missing details</string>
+    <string name="nav_links">Links</string>
+    <string name="nav_settings">Settings</string>
+    <string name="action_add_link">Add link</string>
+
+    <!-- Search -->
+    <string name="search_placeholder">Search links…</string>
+    <string name="action_clear_search">Clear search</string>
+    <plurals name="search_results">
+        <item quantity="one">%d result</item>
+        <item quantity="other">%d results</item>
+    </plurals>
+    <string name="msg_load_failed">Couldn\'t load links</string>
+
+    <!-- Category chips -->
+    <string name="chip_all">All</string>
+    <string name="chip_all_categories">All categories (%1$d)</string>
+    <string name="sheet_filter_by_category">Filter by category</string>
+    <string name="chip_category_with_count">%1$s (%2$d)</string>
+
+    <!-- Progress / onboarding banners -->
+    <plurals name="banner_fetching_details">
+        <item quantity="one">Fetching details for %d link…</item>
+        <item quantity="other">Fetching details for %d links…</item>
+    </plurals>
+    <string name="banner_add_provider_title">AI categorization is off</string>
+    <string name="banner_add_provider_body">Add a free API key so new links get categorized, tagged, and summarized automatically.</string>
+    <string name="banner_add_provider_action">Add provider</string>
+    <string name="action_dismiss">Dismiss</string>
+
+    <!-- First-run intro -->
+    <string name="intro_welcome_title">A tidy home for every link</string>
+    <string name="intro_welcome_body">TidyLink collects the URLs you save all day and turns them into a searchable library. Everything stays on your device — no account, no backend, no analytics.</string>
+    <string name="intro_share_title">Share to save</string>
+    <string name="intro_share_body">Share a URL from any app — YouTube, Instagram, X, your browser — and pick TidyLink. It\'s saved before the share sheet closes. You can also add links by hand, or import a text file full of them.</string>
+    <string name="intro_organize_title">Find it again</string>
+    <string name="intro_organize_body">Every link gets its title, description, and thumbnail fetched in the background. Search across everything, or filter by category with a tap.</string>
+    <string name="intro_ai_title">Add AI categorization</string>
+    <string name="intro_ai_body">Optionally, an AI provider can give each link a category, tags, and a one-line summary. It uses your own API key — Gemini\'s free tier works. Keys are encrypted and never leave this device.</string>
+    <string name="intro_ai_add_key">Add a key</string>
+    <string name="intro_ai_configured">AI categorization is ready.</string>
+    <string name="intro_action_skip">Skip</string>
+    <string name="intro_action_next">Next</string>
+    <string name="intro_action_done">Get started</string>
+
+    <!-- Empty state -->
+    <string name="empty_filtered">No links match your filter.</string>
+    <string name="empty_no_links">No links yet.\nShare a URL from any app to TidyLink to get started!</string>
+
+    <!-- Sort sheet -->
+    <string name="sheet_sort_title">Sort links</string>
+    <string name="sort_newest">Newest first</string>
+    <string name="sort_oldest">Oldest first</string>
+    <string name="sort_title_az">Title A–Z</string>
+    <string name="sort_title_za">Title Z–A</string>
+    <string name="sort_category">By category</string>
+
+    <!-- Settings -->
+    <string name="settings_section_ai">AI</string>
+    <string name="settings_ai_providers_title">AI providers</string>
+    <string name="settings_ai_providers_subtitle">API keys used to categorize and summarize links</string>
+    <string name="settings_tidy_title">Tidy up categories</string>
+    <string name="settings_tidy_subtitle">Merge similar categories into a smaller set</string>
+    <string name="settings_section_data">Data</string>
+    <string name="settings_fetch_missing_title">Fetch missing details</string>
+    <string name="settings_fetch_missing_subtitle">Scrape and categorize links that are still incomplete</string>
+    <string name="settings_fetch_missing_busy">Fetching…</string>
+    <string name="settings_export_title">Export links (JSON)</string>
+    <string name="settings_export_subtitle">Save a backup of all your links</string>
+    <string name="settings_import_json_title">Import links (JSON)</string>
+    <string name="settings_import_json_subtitle">Restore links from a backup file</string>
+    <string name="settings_import_txt_title">Import URLs (TXT)</string>
+    <string name="settings_import_txt_subtitle">Bulk-add every link found in a text file</string>
+    <string name="settings_section_about">About</string>
+    <string name="settings_show_intro_title">Show intro again</string>
+    <string name="settings_show_intro_subtitle">Replay the walkthrough you saw on first launch</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_github_title">Source code &amp; issues</string>
+    <string name="settings_github_subtitle">github.com/punitsnaik/TidyLink</string>
+    <string name="settings_privacy_title">Privacy</string>
+    <string name="settings_privacy_subtitle">Link titles and descriptions are sent to your configured AI provider for categorization. Favicons are loaded from Google\'s favicon service. Nothing else leaves your device.</string>
+
+    <!-- Tidy categories confirmation -->
+    <string name="tidy_confirm_title">Tidy up categories?</string>
+    <string name="tidy_confirm_body">Similar categories will be merged, using AI when needed. Renames apply to all links and can\'t be undone.</string>
+    <string name="tidy_confirm_action">Tidy up</string>
+    <string name="action_cancel">Cancel</string>
+
+    <!-- Link detail sheet -->
+    <string name="saved_on">Saved %1$s</string>
+    <string name="action_pin">Pin link</string>
+    <string name="action_unpin">Unpin link</string>
+    <string name="action_edit">Edit link</string>
+    <string name="action_share">Share link</string>
+    <string name="action_copy">Copy link</string>
+    <string name="action_refresh_link">Refresh link</string>
+    <string name="action_delete_link">Delete link</string>
+    <string name="cta_open">Open %1$s</string>
+    <string name="cta_open_link">Open link</string>
+    <string name="share_chooser_title">Share link</string>
+    <string name="cd_selected">Selected</string>
+    <string name="cd_pinned">Pinned</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_edit_title">Edit link</string>
+    <string name="field_title">Title</string>
+    <string name="field_category">Category</string>
+    <string name="field_tags">Tags (comma-separated)</string>
+    <string name="action_save">Save</string>
+    <plurals name="dialog_move_title">
+        <item quantity="one">Move %d link to…</item>
+        <item quantity="other">Move %d links to…</item>
+    </plurals>
+    <string name="action_move">Move</string>
+    <string name="dialog_add_title">Add link</string>
+    <string name="add_url_placeholder">https://…</string>
+    <string name="add_url_invalid">Enter a valid web address</string>
+
+    <!-- Snackbar messages -->
+    <string name="msg_already_saved">Already in your library</string>
+    <string name="msg_save_failed">Couldn\'t save link</string>
+    <string name="msg_edit_failed">Couldn\'t save changes</string>
+    <plurals name="msg_moved">
+        <item quantity="one">Moved %1$d link to %2$s</item>
+        <item quantity="other">Moved %1$d links to %2$s</item>
+    </plurals>
+    <string name="msg_move_failed">Couldn\'t move links</string>
+    <string name="msg_pin_failed">Couldn\'t update pin</string>
+    <string name="msg_refresh_link_failed">Couldn\'t refresh link</string>
+    <string name="msg_all_up_to_date">All links are up to date</string>
+    <plurals name="msg_refreshed">
+        <item quantity="one">Refreshed %d link</item>
+        <item quantity="other">Refreshed %d links</item>
+    </plurals>
+    <string name="msg_refreshed_with_pending">Refreshed %1$d links — %2$d couldn\'t be categorized (AI rate limit), will retry automatically</string>
+    <string name="msg_refreshed_no_provider">Refreshed %1$d links — %2$d not categorized: add an AI provider in Settings</string>
+    <string name="msg_refresh_failed">Refresh failed</string>
+    <plurals name="links_deleted">
+        <item quantity="one">Link deleted</item>
+        <item quantity="other">%d links deleted</item>
+    </plurals>
+    <string name="action_undo">Undo</string>
+    <string name="msg_import_none_new">No new links — %1$d already saved</string>
+    <plurals name="msg_imported">
+        <item quantity="one">Imported %d link — fetching details in the background</item>
+        <item quantity="other">Imported %d links — fetching details in the background</item>
+    </plurals>
+    <string name="msg_imported_with_dups">Imported %1$d links, skipped %2$d duplicates — fetching details in the background</string>
+    <string name="msg_import_failed">Import failed</string>
+    <string name="msg_import_too_large">That file is too large to import (limit 5 MB)</string>
+    <string name="msg_import_invalid">Import failed: invalid file</string>
+    <plurals name="msg_imported_json">
+        <item quantity="one">Imported %d link</item>
+        <item quantity="other">Imported %d links</item>
+    </plurals>
+    <string name="msg_no_links_found_file">No links found in file</string>
+    <plurals name="msg_found_links">
+        <item quantity="one">Found %d link, importing…</item>
+        <item quantity="other">Found %d links, importing…</item>
+    </plurals>
+    <string name="msg_export_done">Links exported</string>
+    <string name="msg_export_failed">Export failed</string>
+    <plurals name="msg_tidy_merged">
+        <item quantity="one">Tidied up: merged %d category</item>
+        <item quantity="other">Tidied up: merged %d categories</item>
+    </plurals>
+    <string name="msg_tidy_merged_ai_unavailable">Merged %1$d duplicate categories — deeper AI cleanup unavailable (rate limit), try again later</string>
+    <string name="msg_tidy_ai_unavailable">Couldn\'t tidy categories (AI rate limit) — try again later</string>
+    <string name="msg_tidy_already">Categories already tidy</string>
+    <string name="msg_tidy_failed">Couldn\'t tidy categories</string>
+
+    <!-- Share receiver -->
+    <string name="share_no_link_found">No link found in shared text</string>
+    <string name="share_saving">Saving to TidyLink…</string>
+    <string name="share_already_saved">Already in TidyLink</string>
+
+    <!-- AI provider sheet -->
+    <string name="provider_sheet_title">AI providers</string>
+    <string name="provider_sheet_body">Keys are stored encrypted on this device and never leave it. Add more than one provider and TidyLink automatically switches to the next when a rate limit is hit.</string>
+    <string name="provider_remove">Remove provider</string>
+    <string name="provider_remove_confirm_title">Remove %1$s?</string>
+    <string name="provider_remove_confirm_body">Its API key will be deleted from this device and can\'t be recovered.</string>
+    <string name="action_remove">Remove</string>
+    <string name="provider_add_title">Add a provider</string>
+    <string name="field_name_optional">Name (optional)</string>
+    <string name="field_base_url">Base URL</string>
+    <string name="field_model">Model</string>
+    <string name="field_api_key">API key</string>
+    <string name="action_show">Show</string>
+    <string name="action_hide">Hide</string>
+    <string name="action_add_provider">Add provider</string>
+    <string name="provider_health_working">Working · %1$s</string>
+    <string name="provider_health_failing">Failing · %1$s</string>
+    <string name="provider_health_unused">Not used yet</string>
+    <string name="provider_priority_primary">Primary</string>
+    <string name="provider_priority_fallback">Fallback %1$d</string>
+    <string name="provider_move_up">Move up</string>
+    <string name="provider_move_down">Move down</string>
+    <string name="provider_order_hint">Tried top to bottom. TidyLink falls back to the next key when one is rate-limited.</string>
+    <string name="preset_custom">Custom</string>
+    <string name="action_test">Test</string>
+    <string name="provider_test_testing">Testing connection…</string>
+    <string name="provider_test_ok">Connection OK — ready to add</string>
+    <string name="provider_empty_title">No providers yet</string>
+    <string name="provider_empty_body">Add a free Gemini or Grok key to categorize, tag and summarize links automatically.</string>
+    <string name="provider_model_and_key">%1$s · %2$s</string>
+    <string name="time_just_now">just now</string>
+    <string name="time_minutes_ago">%1$dm ago</string>
+    <string name="time_hours_ago">%1$dh ago</string>
+    <string name="time_days_ago">%1$dd ago</string>
+</resources>

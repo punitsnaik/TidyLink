@@ -1,0 +1,47 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen. Never include your API keys.
+      placeholder: Steps to reproduce, expected vs. actual behavior…
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings → About
+      placeholder: "1.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device & Android version
+      placeholder: "Pixel 8, Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Saving / sharing links
+        - Bulk import
+        - AI categorization / providers
+        - Search / filtering / sorting
+        - Backup / restore
+        - UI / theming
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (optional)
+      description: Redact anything sensitive.
+      render: text
