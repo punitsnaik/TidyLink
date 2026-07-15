@@ -41,8 +41,8 @@ jobs:
       # bash read it as a positional parameter and expanded it to nothing, so
       # the file got a truncated password and the build failed with the very
       # misleading "keystore password was incorrect".
-      # Reading "$VAR" expands the variable exactly once — the value itself is
-      # never re-scanned — which is both correct and injection-safe.
+      # Reading "$VAR" expands the variable exactly once - the value itself is
+      # never re-scanned - which is both correct and injection-safe.
       #
       # Never quote a real secret in a comment to illustrate a bug. Comments
       # ship. Describe the shape of the input instead.
@@ -80,7 +80,7 @@ jobs:
       #
       # A "CN=" check cannot catch (2): a rotated key usually keeps the same
       # subject name. Only the certificate fingerprint distinguishes them, so
-      # pin it. Set the repository VARIABLE (not secret — a public-key
+      # pin it. Set the repository VARIABLE (not secret - a public-key
       # fingerprint isn't sensitive, and vars are readable in logs, which is
       # what makes a mismatch debuggable):
       #
@@ -89,7 +89,7 @@ jobs:
       #       keytool -list -v -keystore release.jks | grep "SHA256:")
       #
       # Leave it unset and the job still blocks debug keys, but cannot detect
-      # a stale one — it will say so loudly.
+      # a stale one - it will say so loudly.
       - name: Verify the release signer
         env:
           EXPECTED_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
@@ -98,7 +98,7 @@ jobs:
           APK=app/build/outputs/apk/release/app-release.apk
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -Vr | head -n1)
           if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner not found — cannot verify the signer."
+            echo "::error::apksigner not found - cannot verify the signer."
             exit 1
           fi
 
@@ -106,7 +106,7 @@ jobs:
           echo "$CERTS"
 
           if grep -q "CN=Android Debug" <<< "$CERTS"; then
-            echo "::error::Release APK is DEBUG-SIGNED — refusing to publish. Check the RELEASE_* secrets."
+            echo "::error::Release APK is DEBUG-SIGNED - refusing to publish. Check the RELEASE_* secrets."
             exit 1
           fi
 
@@ -119,19 +119,19 @@ jobs:
           echo "signer SHA-256: $ACTUAL"
 
           if [ -z "${EXPECTED_SHA256:-}" ]; then
-            echo "::warning::RELEASE_CERT_SHA256 variable is not set — cannot verify this is the CURRENT key, only that it isn't the debug key. Set it to pin the signer."
+            echo "::warning::RELEASE_CERT_SHA256 variable is not set - cannot verify this is the CURRENT key, only that it isn't the debug key. Set it to pin the signer."
             exit 0
           fi
 
           EXPECTED=$(tr -d ' :' <<< "$EXPECTED_SHA256" | tr 'A-F' 'a-f')
           if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::Signer mismatch — refusing to publish."
+            echo "::error::Signer mismatch - refusing to publish."
             echo "::error::expected $EXPECTED"
             echo "::error::actual   $ACTUAL"
             echo "::error::RELEASE_KEYSTORE_BASE64 is probably a stale key. Re-upload it from your current keystore."
             exit 1
           fi
-          echo "OK — release APK is signed with the expected key."
+          echo "OK - release APK is signed with the expected key."
 
       # Derived once, used for both the Release title and the APK filename, so
       # the two can never drift apart. The tag drives everything: v1.0 ->
@@ -141,7 +141,7 @@ jobs:
       # Read via env, not "${{ }}" straight into the script: `${{ }}` pastes
       # the value into the shell source, so a tag containing a metacharacter
       # would be interpreted rather than used. Same class of bug as the
-      # signing-secret heredoc above — see the comment there.
+      # signing-secret heredoc above - see the comment there.
       - name: Derive release name from tag
         id: rel
         env:

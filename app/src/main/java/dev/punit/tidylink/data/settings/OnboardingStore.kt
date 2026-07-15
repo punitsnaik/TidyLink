@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * the very first composition, and prefs load synchronously in the constructor,
  * so [hasSeenIntro] already holds the right value before the first frame. A
  * DataStore flow would emit its default first, showing a frame of the empty
- * dashboard before the intro replaced it — the one thing an intro must not do.
+ * dashboard before the intro replaced it - the one thing an intro must not do.
  *
  * Kept in its own prefs file (not [LlmProviderStore]'s) because that one is
  * excluded from backup to keep API-key ciphertext on-device. This flag has the
@@ -29,7 +29,7 @@ class OnboardingStore(context: Context) {
     /** False only until the intro is finished or skipped once. */
     val hasSeenIntro: StateFlow<Boolean> = _hasSeenIntro.asStateFlow()
 
-    /** Called when the intro is completed OR skipped — both mean "don't show again". */
+    /** Called when the intro is completed OR skipped - both mean "don't show again". */
     fun markIntroSeen() = setSeen(true)
 
     /** Replays the intro from Settings → About. */

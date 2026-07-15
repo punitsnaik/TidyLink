@@ -23,7 +23,7 @@ class CleartextReasonTest {
     @Test
     fun `a LAN LLM server is rejected too, deliberately`() {
         // Ollama / LM Studio. Supporting these needs a network security config
-        // allowing cleartext to private ranges — a feature, not a fix. Until
+        // allowing cleartext to private ranges - a feature, not a fix. Until
         // then this must fail loudly rather than silently never work.
         assertNotNull(cleartextReason("http://192.168.1.5:11434/v1/"))
         assertNotNull(cleartextReason("http://localhost:1234/v1/"))

@@ -29,7 +29,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       # assembleDebugAndroidTest compiles the instrumented migration tests
-      # without running them (no emulator here) — so they can't rot unnoticed.
+      # without running them (no emulator here) - so they can't rot unnoticed.
       # Run them locally against a device: ./gradlew connectedDebugAndroidTest
       - name: Lint, unit tests, debug build
         run: >

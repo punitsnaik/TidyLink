@@ -64,7 +64,7 @@ object UrlCanonicalizer {
 
     /**
      * Key used to decide whether two URLs point at the same page: the cleaned
-     * URL minus scheme and "www." — so http/https and www/no-www variants
+     * URL minus scheme and "www." - so http/https and www/no-www variants
      * (and tracking-param variants) all collide.
      */
     fun dedupeKey(url: String): String = cleanUrl(url)
@@ -80,7 +80,7 @@ object UrlCanonicalizer {
         .trimEnd('/')
 
     /**
-     * Whether [raw] is plausibly a fetchable web URL after cleaning — used to
+     * Whether [raw] is plausibly a fetchable web URL after cleaning - used to
      * reject free text ("hello") before it becomes a permanently broken row.
      */
     fun isValidHttpUrl(raw: String): Boolean {

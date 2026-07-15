@@ -26,7 +26,7 @@ import org.junit.runner.RunWith
  *
  * Since minSdk dropped to 29, that has a consequence worth stating: running
  * this suite on an API 29–33 device WILL fail on the 3→4 cases. That's the
- * test being honest, not flaky — see MIGRATION_3_4's comment for why the
+ * test being honest, not flaky - see MIGRATION_3_4's comment for why the
  * statement is nonetheless unreachable in production.
  *
  * Method names here are snake_case, NOT Kotlin's backticked
@@ -91,12 +91,12 @@ class MigrationTest {
     /**
      * The v1 database is built from raw DDL rather than a hand-written
      * 1.json. v1 shipped with `exportSchema = false`, so no 1.json exists,
-     * and MigrationTestHelper.createDatabase() would need one — including a
+     * and MigrationTestHelper.createDatabase() would need one - including a
      * correct `identityHash`, which only Room's compiler can produce. Inventing
      * that hash would risk a test that passes for the wrong reason. The DDL
      * below is taken verbatim from the v1 entity definitions (commit 8ad5c92^:
      * LinkEntity without dedupeKey/pinned/scrapeAttempts, plus LinkFtsEntity,
-     * which v1 did already have — which is why MIGRATION_1_2 does not create
+     * which v1 did already have - which is why MIGRATION_1_2 does not create
      * links_fts). Room still validates the v4 *result* against 4.json.
      */
     @Test
@@ -117,7 +117,7 @@ class MigrationTest {
         assertEquals(mapOf("placeholder" to 0, "rich" to 1, "scraped-no-og" to 1), attempts)
 
         // The external-content FTS index keys off links.rowid. MIGRATION_3_4
-        // drops a column, which rewrites rows — if rowids shifted, every search
+        // drops a column, which rewrites rows - if rowids shifted, every search
         // result would silently point at the wrong link.
         val hits = db.query(
             "SELECT links.title FROM links JOIN links_fts ON links.rowid = links_fts.rowid " +

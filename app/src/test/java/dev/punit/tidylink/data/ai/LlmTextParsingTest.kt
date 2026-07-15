@@ -41,7 +41,7 @@ class LlmTextParsingTest {
 
     @Test
     fun `array chatter is cut away`() {
-        val raw = "Here you go: [1, 2, 3] — done!"
+        val raw = "Here you go: [1, 2, 3] - done!"
         assertEquals("[1, 2, 3]", LlmTextParsing.extractJsonArray(raw))
     }
 }

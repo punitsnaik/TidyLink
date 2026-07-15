@@ -14,7 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Manual dependency container — deliberately simple (no Hilt) for an app of
+ * Manual dependency container - deliberately simple (no Hilt) for an app of
  * this size. Everything is lazy so nothing is built until first use.
  */
 class AppContainer(application: Application) {

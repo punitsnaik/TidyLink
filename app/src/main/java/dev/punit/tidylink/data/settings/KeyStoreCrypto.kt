@@ -10,7 +10,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 /**
  * AES/GCM encryption backed by a hardware-protected Android Keystore key.
- * Used to encrypt the user's LLM API keys at rest — the key material never
+ * Used to encrypt the user's LLM API keys at rest - the key material never
  * leaves the Keystore, so the ciphertext in SharedPreferences is useless
  * off-device (it is additionally excluded from backups and device
  * transfer; see data_extraction_rules).
@@ -31,7 +31,7 @@ internal object KeyStoreCrypto {
         return cipher.iv + cipher.doFinal(plaintext)
     }
 
-    /** Throws on tampered/undecryptable input — callers must catch. */
+    /** Throws on tampered/undecryptable input - callers must catch. */
     fun decrypt(blob: ByteArray): ByteArray {
         require(blob.size > IV_LENGTH_BYTES) { "ciphertext too short" }
         val cipher = Cipher.getInstance(TRANSFORMATION)

@@ -16,7 +16,7 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import java.util.concurrent.TimeUnit
 
-/** What the LLM must return — parsed with kotlinx-serialization. */
+/** What the LLM must return - parsed with kotlinx-serialization. */
 @Serializable
 data class AiClassification(
     val category: String,
@@ -69,7 +69,7 @@ interface ChatCompletionsApi {
  * Why [baseUrl] can never work, or null if it's fine.
  *
  * Android blocks cleartext traffic by default from API 28, and TidyLink's
- * minSdk is 34, so no `http://` endpoint is reachable — including a LAN LLM
+ * minSdk is 34, so no `http://` endpoint is reachable - including a LAN LLM
  * server (Ollama, LM Studio). Supporting those would need a network security
  * config permitting cleartext to private ranges; that's a feature, not a fix,
  * and it opens a new egress path worth disclosing. Until then, fail loudly at
@@ -80,7 +80,7 @@ interface ChatCompletionsApi {
  */
 internal fun cleartextReason(baseUrl: String): String? =
     if (baseUrl.trim().startsWith("http://", ignoreCase = true)) {
-        "Use https:// — Android blocks plain http:// traffic"
+        "Use https:// - Android blocks plain http:// traffic"
     } else {
         null
     }
@@ -97,23 +97,23 @@ internal object ProviderFailure {
 
     fun describe(e: Throwable): String = when (e) {
         is retrofit2.HttpException -> httpReason(e.code())
-        is java.net.UnknownHostException -> "No connection — host unreachable"
-        is java.net.SocketTimeoutException -> "Timed out — provider too slow"
+        is java.net.UnknownHostException -> "No connection - host unreachable"
+        is java.net.SocketTimeoutException -> "Timed out - provider too slow"
         is kotlinx.serialization.SerializationException ->
             // In a release build this almost always means R8 stripped the
             // generated serializers (missing keep rules), not a bad payload.
-            "Unreadable response — check R8 keep rules"
+            "Unreadable response - check R8 keep rules"
         is java.io.IOException -> "Network error: ${e.message ?: "unknown"}"
         else -> e.message?.take(120) ?: e.javaClass.simpleName
     }
 
     private fun httpReason(code: Int): String = when (code) {
-        400 -> "HTTP 400 — bad request, check the model name"
-        401 -> "HTTP 401 — invalid or revoked API key"
-        403 -> "HTTP 403 — key lacks access to this model"
-        404 -> "HTTP 404 — model or endpoint not found"
-        429 -> "HTTP 429 — rate limited or quota exhausted"
-        in 500..599 -> "HTTP $code — provider outage"
+        400 -> "HTTP 400 - bad request, check the model name"
+        401 -> "HTTP 401 - invalid or revoked API key"
+        403 -> "HTTP 403 - key lacks access to this model"
+        404 -> "HTTP 404 - model or endpoint not found"
+        429 -> "HTTP 429 - rate limited or quota exhausted"
+        in 500..599 -> "HTTP $code - provider outage"
         else -> "HTTP $code"
     }
 }
@@ -123,11 +123,11 @@ internal object ProviderFailure {
  * providers the user configured in-app (see [LlmProviderStore]).
  *
  * Providers are tried in order: when one is rate-limited (HTTP 429) or
- * rejects the key/model, the next provider takes over — so several
+ * rejects the key/model, the next provider takes over - so several
  * keys (Gemini, xAI Grok, or any custom endpoint) stack their quotas.
  *
  * [classify] returns null on ANY failure (no providers, network, rate
- * limit, malformed JSON) — the repository falls back to defaults so the
+ * limit, malformed JSON) - the repository falls back to defaults so the
  * link is never lost.
  */
 class AiCategorizationService(
@@ -158,7 +158,7 @@ class AiCategorizationService(
                 .create(ChatCompletionsApi::class.java)
         }
     } catch (e: Exception) {
-        null // malformed base URL — skip this provider
+        null // malformed base URL - skip this provider
     }
 
     /**
@@ -245,7 +245,7 @@ class AiCategorizationService(
                         return text
                     }
                     // 200 with empty choices (some providers wrap errors this
-                    // way) — treat like a rate limit: retry, then rotate.
+                    // way) - treat like a rate limit: retry, then rotate.
                     reason = "Empty response from provider"
                 } catch (e: CancellationException) {
                     throw e // never swallow coroutine cancellation
@@ -260,7 +260,7 @@ class AiCategorizationService(
                 if (attempt <= MAX_RATE_LIMIT_RETRIES) delay(RATE_LIMIT_RETRY_DELAY_MS * attempt)
             }
             // Reaching here means this provider never produced a usable
-            // answer (rate-limited out, bad key, network) — record WHY so the
+            // answer (rate-limited out, bad key, network) - record WHY so the
             // provider sheet can surface it instead of a bare "Failing".
             providerStore.recordFailure(provider.id, reason)
         }
@@ -288,12 +288,12 @@ class AiCategorizationService(
      * the user commits to it. Returns null on success, or a short reason.
      *
      * This runs against an unsaved [provider], so the user finds out a key is
-     * wrong at the moment they paste it — not silently, hours later, on the
+     * wrong at the moment they paste it - not silently, hours later, on the
      * next background classification sweep.
      */
     suspend fun testProvider(provider: LlmProvider): String? {
         // Cleartext is blocked because targetSdk >= 28 makes usesCleartextTraffic
-        // default to false, and that default applies on every API 28+ device —
+        // default to false, and that default applies on every API 28+ device -
         // i.e. all of them, at minSdk 29. So an http:// endpoint can never work;
         // it dies deep in OkHttp as an opaque "Network error" that reads like a
         // connectivity problem. Say so here, at paste time, instead.
@@ -379,7 +379,7 @@ class AiCategorizationService(
         private const val MAX_RATE_LIMIT_RETRIES = 1
         private const val RATE_LIMIT_RETRY_DELAY_MS = 3_000L
 
-        /** Deliberately tiny — a connection check, not a real classification. */
+        /** Deliberately tiny - a connection check, not a real classification. */
         private const val TEST_SYSTEM_PROMPT = "Reply with the single word: ok"
         private const val TEST_USER_PROMPT = "ping"
 
@@ -395,7 +395,7 @@ class AiCategorizationService(
             - "aiSummary" must be exactly one sentence.
             - Base everything on the SUBSTANTIVE content of the page. Social media
               captions often start with promotional calls-to-action ("Comment X to
-              get...", "Follow for more", giveaway/webinar plugs) — skip those and
+              get...", "Follow for more", giveaway/webinar plugs) - skip those and
               categorize/summarize the actual topic being discussed instead.
             - Never use "Promotion", "Webinar" or similar marketing-mechanics words
               as the category unless the page has no other substance.
@@ -416,7 +416,7 @@ class AiCategorizationService(
             - "aiSummary" must be exactly one sentence.
             - Base everything on the SUBSTANTIVE content of the page. Social media
               captions often start with promotional calls-to-action ("Comment X to
-              get...", "Follow for more", giveaway/webinar plugs) — skip those and
+              get...", "Follow for more", giveaway/webinar plugs) - skip those and
               categorize/summarize the actual topic being discussed instead.
             - Never use "Promotion", "Webinar" or similar marketing-mechanics words
               as the category unless the page has no other substance.

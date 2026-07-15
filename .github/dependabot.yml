@@ -3,7 +3,7 @@
 #
 # Grouped into one PR per ecosystem per week: the point is a periodic nudge to
 # review and bump, not a stream of single-dependency PRs. Note the caveat from
-# the production-readiness review — after ANY dependency change, smoke-test a
+# the production-readiness review - after ANY dependency change, smoke-test a
 # *release* build (save -> scrape -> classify -> export/import). R8 has silently
 # broken the serialization path before, and only in release builds.
 version: 2
@@ -16,12 +16,12 @@ updates:
     open-pull-requests-limit: 5
     # androidx.core 1.19+ and androidx.lifecycle 2.11+ declare a minimum
     # compileSdk of 37 (Android 17). We build against 36.1, so checkAarMetadata
-    # fails the build outright — Dependabot's PR can never go green, and a
+    # fails the build outright - Dependabot's PR can never go green, and a
     # permanently-red PR trains you to ignore red.
     #
     # Ignore those versions by RANGE, not by update-type. An
     # `update-types: [semver-minor]` ignore blocks every minor bump, not just
-    # the ones that break the build — which is how this project sat on
+    # the ones that break the build - which is how this project sat on
     # core-ktx 1.10.1 and lifecycle 2.8.7 while the rest of the catalog stayed
     # current. The range says exactly what's true: everything below the
     # compileSdk-37 wall is fair game.

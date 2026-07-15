@@ -89,14 +89,14 @@ private val PAGES = listOf(
  * First-run intro: what TidyLink is, how links get in, how to find them
  * again, and an optional prompt to add an AI key.
  *
- * The AI step is deliberately skippable — categorization is an optional
+ * The AI step is deliberately skippable - categorization is an optional
  * feature that needs the user's own key, and a first-run wall demanding one
  * would misrepresent the app. Whoever skips still meets [AddProviderBanner]
  * on the dashboard, which shows while no provider is configured.
  *
  * Reached from [dev.punit.tidylink.MainActivity] while
  * [LinkViewModel.hasSeenIntro] is false. Sharing a URL into the app does NOT
- * come through here — see ShareReceiverActivity.
+ * come through here - see ShareReceiverActivity.
  */
 @Composable
 fun OnboardingScreen(
@@ -198,7 +198,7 @@ fun OnboardingScreen(
     }
 }
 
-/** Icon, title, body — plus the key CTA on the AI page. */
+/** Icon, title, body - plus the key CTA on the AI page. */
 @Composable
 private fun IntroPageContent(
     page: IntroPage,
@@ -248,7 +248,7 @@ private fun IntroPageContent(
         if (page.isAiSetup) {
             Spacer(Modifier.height(28.dp))
             if (hasProvider) {
-                // Confirms the key landed — the sheet dismisses back to this
+                // Confirms the key landed - the sheet dismisses back to this
                 // page, which would otherwise look like nothing happened.
                 Text(
                     text = stringResource(R.string.intro_ai_configured),

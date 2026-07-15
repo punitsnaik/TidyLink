@@ -24,7 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * Every migration, in order. Exposed (not private) so MigrationTest
-         * exercises exactly what ships — a test with its own copy of the
+         * exercises exactly what ships - a test with its own copy of the
          * migration list would drift from this one.
          */
         val ALL_MIGRATIONS: Array<Migration>
@@ -47,7 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `links` ADD COLUMN `lastScrapedAt` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `links` ADD COLUMN `scrapeAttempts` INTEGER NOT NULL DEFAULT 0")
                 // Rows that already carry scraped details were obviously
-                // scraped at least once — mark them so the enrichment sweep
+                // scraped at least once - mark them so the enrichment sweep
                 // doesn't re-fetch the whole library after this upgrade.
                 db.execSQL(
                     """
@@ -64,7 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
          * references the column.
          *
          * DROP COLUMN needs SQLite 3.35+, which means API 34+. minSdk is 29, so
-         * this statement would throw on Android 10–13 — it is unreachable there
+         * this statement would throw on Android 10–13 - it is unreachable there
          * in practice: v3 only ever existed on this developer's device, nothing
          * with that schema was ever published, and a fresh install creates v4
          * outright without running any migration. It is left as-is rather than

@@ -62,18 +62,18 @@ interface LinkDao {
     @Query("SELECT * FROM links WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): LinkEntity?
 
-    /** Live view of one link — drives the detail sheet under paging. */
+    /** Live view of one link - drives the detail sheet under paging. */
     @Query("SELECT * FROM links WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<LinkEntity?>
 
     @Query("SELECT * FROM links WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<String>): List<LinkEntity>
 
-    /** Indexed duplicate lookup — no table scan. */
+    /** Indexed duplicate lookup - no table scan. */
     @Query("SELECT * FROM links WHERE dedupeKey = :key LIMIT 1")
     suspend fun getByDedupeKey(key: String): LinkEntity?
 
-    /** All dedupe keys — bulk-import duplicate filtering without full rows. */
+    /** All dedupe keys - bulk-import duplicate filtering without full rows. */
     @Query("SELECT dedupeKey FROM links WHERE dedupeKey != ''")
     suspend fun getAllDedupeKeys(): List<String>
 
@@ -108,7 +108,7 @@ interface LinkDao {
     )
     suspend fun getClassifyCandidates(fallbackCategory: String): List<LinkEntity>
 
-    /** How many links still await their first scrape — drives the UI banner. */
+    /** How many links still await their first scrape - drives the UI banner. */
     @Query("SELECT COUNT(*) FROM links WHERE scrapeAttempts = 0")
     fun countNeverScraped(): Flow<Int>
 
@@ -129,7 +129,7 @@ interface LinkDao {
     suspend fun deleteByIds(ids: List<String>)
 }
 
-/** Runs of letters/digits/underscore — everything else is a separator. */
+/** Runs of letters/digits/underscore - everything else is a separator. */
 private val FTS_WORD = Regex("[\\p{L}\\p{N}_]+")
 
 /**
@@ -143,8 +143,8 @@ private val FTS_WORD = Regex("[\\p{L}\\p{N}_]+")
  * phrase match and the `*` is silently ignored. So tokens must not be
  * quoted. Instead every non-word character is treated as a separator (which
  * strips the FTS operators `" * ^ - ( ) :` along with punctuation), and
- * tokens are lowercased so the query keywords AND/OR/NOT/NEAR — which FTS
- * only recognizes in uppercase — become ordinary search terms. The unicode61
+ * tokens are lowercased so the query keywords AND/OR/NOT/NEAR - which FTS
+ * only recognizes in uppercase - become ordinary search terms. The unicode61
  * tokenizer folds case anyway, so lowercasing costs no recall.
  */
 fun sanitizeFtsQuery(userQuery: String): String =

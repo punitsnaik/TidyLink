@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
  * [dev.punit.tidylink.data.repository.LinkRepository.refreshUnfetched]).
  * Bulk imports enqueue this instead of doing the work in a ViewModel scope,
  * so a large import survives the user leaving the app, Doze, and process
- * death. Idempotent — safe to enqueue repeatedly.
+ * death. Idempotent - safe to enqueue repeatedly.
  */
 class EnrichmentSweepWorker(
     appContext: Context,
@@ -55,7 +55,7 @@ class EnrichmentSweepWorker(
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_NAME,
                 // A running sweep may already be past the point where it can
-                // see freshly inserted rows — append a follow-up run.
+                // see freshly inserted rows - append a follow-up run.
                 ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request,
             )
