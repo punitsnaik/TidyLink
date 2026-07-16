@@ -30,8 +30,9 @@ object UrlCanonicalizer {
 
     /**
      * Cleans a URL for storage: adds a scheme when missing, lowercases the
-     * host, drops the fragment and strips known tracking query parameters
-     * (utm_*, si, fbclid…). Falls back to the raw string when unparseable.
+     * host, and strips known tracking query parameters (utm_*, si, fbclid…).
+     * Fragments are preserved (essential for SPAs).
+     * Falls back to the raw string when unparseable.
      */
     fun cleanUrl(raw: String): String {
         val trimmed = raw.trim()
@@ -56,6 +57,7 @@ object UrlCanonicalizer {
                 if (uri.port != -1) append(':').append(uri.port)
                 append(path)
                 if (query != null) append('?').append(query)
+                if (uri.rawFragment != null) append('#').append(uri.rawFragment)
             }
         } catch (e: Exception) {
             withScheme

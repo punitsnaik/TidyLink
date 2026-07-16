@@ -357,7 +357,10 @@ class LinkViewModel(
      */
     fun importUrlsFromText(text: String): Int {
         val urls = UrlCanonicalizer.extractUrls(text)
-        if (urls.isEmpty()) return 0
+        if (urls.isEmpty()) {
+            message.value = UiMessage.Text(R.string.msg_no_links_found_file)
+            return 0
+        }
 
         viewModelScope.launch {
             isProcessing.value = true

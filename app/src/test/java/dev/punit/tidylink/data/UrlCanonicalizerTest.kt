@@ -39,9 +39,9 @@ class UrlCanonicalizerTest {
     }
 
     @Test
-    fun `drops fragment`() {
+    fun `preserves fragment`() {
         assertEquals(
-            "https://example.com/page",
+            "https://example.com/page#section-2",
             UrlCanonicalizer.cleanUrl("https://example.com/page#section-2"),
         )
     }

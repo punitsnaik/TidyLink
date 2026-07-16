@@ -265,16 +265,14 @@ fun DashboardScreen(
                     context.contentResolver.openInputStream(uri)
                         ?.bufferedReader()?.use { it.readText() }
                 }.orEmpty()
-                val count = viewModel.importUrlsFromText(fileText)
-                if (count > 0) {
-                    resources.getQuantityString(R.plurals.msg_found_links, count, count)
-                } else {
-                    resources.getString(R.string.msg_no_links_found_file)
-                }
+                viewModel.importUrlsFromText(fileText)
+                null // ViewModel handles success/empty messages via uiState.message
             } catch (e: Exception) {
                 resources.getString(R.string.msg_import_failed)
             }
-            snackbarHostState.showSnackbar(text)
+            if (text != null) {
+                snackbarHostState.showSnackbar(text)
+            }
         }
     }
 
