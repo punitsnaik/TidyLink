@@ -117,6 +117,60 @@ class UrlCanonicalizerTest {
         assertTrue(UrlCanonicalizer.extractUrls("no links here").isEmpty())
     }
 
+    @Test
+    fun `extracts multiple urls on the same line separated by spaces or punctuation`() {
+        val text = "Check https://a.com, https://b.com and https://c.com"
+        assertEquals(
+            listOf("https://a.com", "https://b.com", "https://c.com"),
+            UrlCanonicalizer.extractUrls(text),
+        )
+    }
+
+    @Test
+    fun `extracts urls embedded inside quotes or brackets without spaces`() {
+        val text = "(https://example.com/page) or 'https://example.com' link and \"https://example.org\""
+        assertEquals(
+            listOf("https://example.com/page", "https://example.com", "https://example.org"),
+            UrlCanonicalizer.extractUrls(text),
+        )
+    }
+
+    @Test
+    fun `extracts mixed http and https urls`() {
+        val text = "Here is http://insecure.com and https://secure.com"
+        assertEquals(
+            listOf("http://insecure.com", "https://secure.com"),
+            UrlCanonicalizer.extractUrls(text),
+        )
+    }
+
+    @Test
+    fun `preserves valid punctuation inside query parameters or fragments`() {
+        val text = "Look at https://example.com/page?query=hello.world,foo!#section,1. And this: https://example.com/api?a=1,2,3."
+        assertEquals(
+            listOf("https://example.com/page?query=hello.world,foo!#section,1", "https://example.com/api?a=1,2,3"),
+            UrlCanonicalizer.extractUrls(text),
+        )
+    }
+
+    @Test
+    fun `extracts urls from complex text with mixed punctuation`() {
+        val text = "Go to https://example.com! It's awesome. (See https://example.org for more). Also https://example.net/page."
+        assertEquals(
+            listOf("https://example.com!", "https://example.org", "https://example.net/page"),
+            UrlCanonicalizer.extractUrls(text),
+        )
+    }
+
+    @Test
+    fun `extracts urls with immediately preceding text`() {
+        val text = "visit:https://example.com or link=https://example.org/path"
+        assertEquals(
+            listOf("https://example.com", "https://example.org/path"),
+            UrlCanonicalizer.extractUrls(text),
+        )
+    }
+
     // --- placeholderTitle -----------------------------------------------------
 
     @Test
