@@ -302,7 +302,7 @@ class LinkRepository(
         val existingKeys = linkDao.getAllDedupeKeys().toHashSet()
         // Legacy rows may not be indexed yet (backfill still running).
         if (linkDao.countMissingDedupeKeys() > 0) {
-            existingKeys += linkDao.getAllOnce().map { UrlCanonicalizer.dedupeKey(it.url) }
+            existingKeys += linkDao.getMissingDedupeKeys().map { UrlCanonicalizer.dedupeKey(it.url) }
         }
         val newUrls = cleaned.filterNot { UrlCanonicalizer.dedupeKey(it) in existingKeys }
         val duplicates = cleaned.size - newUrls.size
@@ -574,7 +574,7 @@ class LinkRepository(
         // Legacy rows may not be indexed yet (backfill still running):
         // fall back to the old table scan only while any remain.
         if (linkDao.countMissingDedupeKeys() > 0) {
-            return linkDao.getAllOnce().firstOrNull { UrlCanonicalizer.dedupeKey(it.url) == key }
+            return linkDao.getMissingDedupeKeys().firstOrNull { UrlCanonicalizer.dedupeKey(it.url) == key }
         }
         return null
     }
