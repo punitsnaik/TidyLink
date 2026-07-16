@@ -339,6 +339,11 @@ private val CopyIcon: ImageVector by lazy {
  */
 internal fun openLink(context: Context, url: String) {
     val uri = url.toUri()
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") {
+        return
+    }
+
     if (openInNativeApp(context, uri)) return
     try {
         CustomTabsIntent.Builder()
