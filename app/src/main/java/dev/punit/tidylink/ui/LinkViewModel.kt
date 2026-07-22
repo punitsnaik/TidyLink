@@ -406,7 +406,6 @@ class LinkViewModel(
                 isProcessing.value = false
             }
         }
-        return urls.size
     }
 
     /**
