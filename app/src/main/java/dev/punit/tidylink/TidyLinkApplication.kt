@@ -7,6 +7,7 @@ import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
+import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,8 @@ class AppContainer(application: Application) {
     val llmProviderStore by lazy { LlmProviderStore(app.applicationContext) }
 
     val onboardingStore by lazy { OnboardingStore(app.applicationContext) }
+
+    val updateChecker by lazy { UpdateChecker(app.applicationContext) }
 
     /** Shared so the provider sheet can test a key before saving it. */
     val aiService by lazy { AiCategorizationService(llmProviderStore) }

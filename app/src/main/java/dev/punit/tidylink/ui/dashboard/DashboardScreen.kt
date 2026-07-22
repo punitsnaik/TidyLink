@@ -103,6 +103,7 @@ import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.SortOrder
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UiMessage
+import dev.punit.tidylink.ui.UpdateState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -142,6 +143,7 @@ fun DashboardScreen(
     val query by viewModel.searchQueryInput.collectAsStateWithLifecycle()
     val lazyLinks = viewModel.links.collectAsLazyPagingItems()
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     // LocalResources (not context.resources): stays correct across locale /
@@ -461,38 +463,30 @@ fun DashboardScreen(
                     )
                 }
 
-                // Animated in/out so the list doesn't jump when work starts/stops.
+                // One bar covers both foreground work (save/import) and
+                // background enrichment - the two used to be separate blocks,
+                // which stacked into a double bar whenever a save overlapped a
+                // bulk-import sweep. Animated in/out so the list doesn't jump.
                 AnimatedVisibility(
-                    visible = uiState.isProcessing,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 2.dp),
-                    )
-                }
-
-                // Background enrichment progress (bulk imports): shows how
-                // many links are still waiting for their first scrape.
-                AnimatedVisibility(
-                    visible = uiState.pendingEnrichment > 0,
+                    visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut(),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Text(
-                            text = pluralStringResource(
-                                R.plurals.banner_fetching_details,
-                                uiState.pendingEnrichment,
-                                uiState.pendingEnrichment,
-                            ),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 2.dp, start = 4.dp),
-                        )
+                        // Caption only when we know the remaining count.
+                        if (uiState.pendingEnrichment > 0) {
+                            Text(
+                                text = pluralStringResource(
+                                    R.plurals.banner_fetching_details,
+                                    uiState.pendingEnrichment,
+                                    uiState.pendingEnrichment,
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp, start = 4.dp),
+                            )
+                        }
                     }
                 }
 
@@ -580,6 +574,16 @@ fun DashboardScreen(
                 },
                 onShowIntro = viewModel::replayIntro,
                 onOpenRepo = { openLink(context, REPO_URL) },
+                updateState = updateState,
+                onUpdateClick = {
+                    when (val state = updateState) {
+                        is UpdateState.Available -> viewModel.downloadUpdate()
+                        is UpdateState.ReadyToInstall -> installApk(context, state.file)
+                        // Row is disabled in these states; nothing to do.
+                        UpdateState.Checking, is UpdateState.Downloading -> Unit
+                        else -> viewModel.checkForUpdates()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
