@@ -164,10 +164,6 @@
         <item quantity="other">Imported %d links</item>
     </plurals>
     <string name="msg_no_links_found_file">No links found in file</string>
-    <plurals name="msg_found_links">
-        <item quantity="one">Found %d link, importing…</item>
-        <item quantity="other">Found %d links, importing…</item>
-    </plurals>
     <string name="msg_export_done">Links exported</string>
     <string name="msg_export_failed">Export failed</string>
     <plurals name="msg_tidy_merged">
