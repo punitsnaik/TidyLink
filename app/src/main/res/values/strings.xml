@@ -218,4 +218,15 @@
     <string name="time_minutes_ago">%1$dm ago</string>
     <string name="time_hours_ago">%1$dh ago</string>
     <string name="time_days_ago">%1$dd ago</string>
+
+    <!-- In-app updates (Settings > About) -->
+    <string name="settings_updates_title">Check for updates</string>
+    <string name="settings_updates_idle">Checks GitHub for a newer version</string>
+    <string name="settings_updates_checking">Checking for updates…</string>
+    <string name="settings_updates_up_to_date">You\'re on the latest version</string>
+    <string name="settings_updates_available">Version %1$s available — tap to download</string>
+    <string name="settings_updates_downloading">Downloading update… %1$d%%</string>
+    <string name="settings_updates_ready">Version %1$s downloaded — tap to install</string>
+    <string name="settings_updates_failed">Couldn\'t check for updates — tap to retry</string>
+    <string name="msg_update_available">TidyLink %1$s is available — download it in Settings</string>
 </resources>

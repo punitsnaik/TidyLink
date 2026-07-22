@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the update-APK cache dir is shareable; see the provider comment in
+     AndroidManifest.xml. -->
+<paths>
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>
