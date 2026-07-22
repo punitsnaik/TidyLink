@@ -47,14 +47,13 @@ android {
         minSdk = 29
         targetSdk = 36
         // versionCode is what Android compares to decide "is this an upgrade?"
-        // 1 shipped with v1.0 and is burned; the next release must be 2. This
-        // number must increase on every release and can never be reused or
-        // lowered - a reused versionCode reads as "not an upgrade", so installs
-        // of the old APK are stranded with no path forward. versionName is the
-        // cosmetic string users see; keep it in step with the v* git tag that
-        // triggers release.yml.
-        versionCode = 1
-        versionName = "1.0"
+        // Every shipped versionCode is burned: it must increase on every
+        // release and can never be reused or lowered - a reused versionCode
+        // reads as "not an upgrade", so installs of the old APK are stranded
+        // with no path forward. versionName is the cosmetic string users see;
+        // keep it in step with the v* git tag that triggers release.yml.
+        versionCode = 2
+        versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
