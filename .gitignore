@@ -24,3 +24,4 @@ keystore.properties
 # (e.g. during a history squash) can't sweep them into the repo.
 CLAUDE.md
 RELEASE_GUIDE.md
+/project-docs/

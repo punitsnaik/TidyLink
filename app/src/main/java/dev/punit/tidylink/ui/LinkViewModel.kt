@@ -23,6 +23,8 @@ import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ProviderHealth
+import dev.punit.tidylink.data.update.UpdateChecker
+import dev.punit.tidylink.data.update.UpdateInfo
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -56,6 +59,20 @@ sealed interface UiMessage {
         val quantity: Int,
         val args: List<Any> = emptyList(),
     ) : UiMessage
+}
+
+/** Lifecycle of the in-app update flow, driving the Settings row. */
+sealed interface UpdateState {
+    /** Nothing checked yet this session. */
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    /** Manual check found nothing newer. */
+    data object UpToDate : UpdateState
+    data class Available(val info: UpdateInfo) : UpdateState
+    data class Downloading(val percent: Int) : UpdateState
+    data class ReadyToInstall(val file: File, val version: String) : UpdateState
+    /** Check or download failed - tap retries. */
+    data object Failed : UpdateState
 }
 
 data class LinkUiState(
@@ -82,6 +99,7 @@ class LinkViewModel(
     private val providerStore: LlmProviderStore,
     private val onboardingStore: OnboardingStore,
     private val aiService: AiCategorizationService,
+    private val updateChecker: UpdateChecker,
 ) : ViewModel() {
 
     private val searchQuery = MutableStateFlow("")
@@ -480,6 +498,65 @@ class LinkViewModel(
         message.value = null
     }
 
+    // --- In-app updates -------------------------------------------------------
+
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+
+    /** Drives the "Check for updates" row in Settings > About. */
+    val updateState: StateFlow<UpdateState> = _updateState.asStateFlow()
+
+    init {
+        // Weekly automatic check; failures stay silent - the user didn't ask.
+        if (updateChecker.shouldAutoCheck()) checkForUpdates(auto = true)
+    }
+
+    /** Manual (Settings row) or weekly automatic check. */
+    fun checkForUpdates(auto: Boolean = false) {
+        if (_updateState.value is UpdateState.Checking ||
+            _updateState.value is UpdateState.Downloading
+        ) {
+            return
+        }
+        viewModelScope.launch {
+            if (!auto) _updateState.value = UpdateState.Checking
+            try {
+                val info = updateChecker.fetchLatest()
+                if (info != null) {
+                    _updateState.value = UpdateState.Available(info)
+                    // The weekly check runs on the dashboard, where the
+                    // Settings row is invisible - surface it as a snackbar.
+                    if (auto) {
+                        message.value = UiMessage.Text(
+                            R.string.msg_update_available,
+                            listOf(info.version),
+                        )
+                    }
+                } else if (!auto) {
+                    _updateState.value = UpdateState.UpToDate
+                }
+            } catch (e: Exception) {
+                if (!auto) _updateState.value = UpdateState.Failed
+            }
+        }
+    }
+
+    /** Downloads the APK; the UI offers install when [UpdateState.ReadyToInstall]. */
+    fun downloadUpdate() {
+        val available = _updateState.value as? UpdateState.Available ?: return
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Downloading(0)
+            try {
+                val file = updateChecker.downloadApk(available.info) { percent ->
+                    _updateState.value = UpdateState.Downloading(percent)
+                }
+                _updateState.value =
+                    UpdateState.ReadyToInstall(file, available.info.version)
+            } catch (e: Exception) {
+                _updateState.value = UpdateState.Failed
+            }
+        }
+    }
+
     // --- First-run intro -----------------------------------------------------
 
     /** False until the intro is finished or skipped; gates the dashboard. */
@@ -505,6 +582,7 @@ class LinkViewModel(
                     providerStore = app.container.llmProviderStore,
                     onboardingStore = app.container.onboardingStore,
                     aiService = app.container.aiService,
+                    updateChecker = app.container.updateChecker,
                 )
             }
         }
