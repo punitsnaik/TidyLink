@@ -370,12 +370,16 @@ class LinkViewModel(
      * links) and bulk-imports them: new links appear immediately as
      * placeholders, then a WorkManager sweep scrapes and classifies them in
      * the background (survives leaving the app). Duplicates - including
-     * tracking-param variants - are skipped. Returns how many distinct URLs
-     * were found in the text.
+     * tracking-param variants - are skipped. All outcome messages (none
+     * found, import summary) surface through [message], so callers show
+     * nothing themselves.
      */
-    fun importUrlsFromText(text: String): Int {
+    fun importUrlsFromText(text: String) {
         val urls = UrlCanonicalizer.extractUrls(text)
-        if (urls.isEmpty()) return 0
+        if (urls.isEmpty()) {
+            message.value = UiMessage.Text(R.string.msg_no_links_found_file)
+            return
+        }
 
         viewModelScope.launch {
             isProcessing.value = true
@@ -402,7 +406,6 @@ class LinkViewModel(
                 isProcessing.value = false
             }
         }
-        return urls.size
     }
 
     /**

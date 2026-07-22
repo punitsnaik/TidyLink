@@ -30,8 +30,10 @@ object UrlCanonicalizer {
 
     /**
      * Cleans a URL for storage: adds a scheme when missing, lowercases the
-     * host, drops the fragment and strips known tracking query parameters
-     * (utm_*, si, fbclid…). Falls back to the raw string when unparseable.
+     * host, and strips known tracking query parameters (utm_*, si, fbclid…).
+     * Plain #anchors are dropped, but SPA hash-routes (#/… or #!/…) are
+     * preserved - for a hash-routed app the fragment IS the page. Falls back
+     * to the raw string when unparseable.
      */
     fun cleanUrl(raw: String): String {
         val trimmed = raw.trim()
@@ -56,6 +58,15 @@ object UrlCanonicalizer {
                 if (uri.port != -1) append(':').append(uri.port)
                 append(path)
                 if (query != null) append('?').append(query)
+                // dedupeKey builds on this output: keeping plain anchors would
+                // split one page into many bookmarks, so only fragments that
+                // route (SPA style) survive.
+                val fragment = uri.rawFragment
+                if (fragment != null &&
+                    (fragment.startsWith("/") || fragment.startsWith("!/"))
+                ) {
+                    append('#').append(fragment)
+                }
             }
         } catch (e: Exception) {
             withScheme
