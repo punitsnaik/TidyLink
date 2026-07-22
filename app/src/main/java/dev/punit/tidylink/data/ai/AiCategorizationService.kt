@@ -68,8 +68,8 @@ interface ChatCompletionsApi {
 /**
  * Why [baseUrl] can never work, or null if it's fine.
  *
- * Android blocks cleartext traffic by default from API 28, and TidyLink's
- * minSdk is 34, so no `http://` endpoint is reachable - including a LAN LLM
+ * Android blocks cleartext traffic by default for apps targeting API 28+,
+ * and TidyLink targets 36, so no `http://` endpoint is reachable - including a LAN LLM
  * server (Ollama, LM Studio). Supporting those would need a network security
  * config permitting cleartext to private ranges; that's a feature, not a fix,
  * and it opens a new egress path worth disclosing. Until then, fail loudly at

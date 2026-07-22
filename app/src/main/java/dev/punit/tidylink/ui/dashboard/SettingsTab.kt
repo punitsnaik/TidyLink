@@ -1,5 +1,8 @@
 package dev.punit.tidylink.ui.dashboard
 
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -18,7 +21,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import dev.punit.tidylink.R
+import dev.punit.tidylink.ui.UpdateState
+import java.io.File
 
 /** Settings tab: configuration, data management, about. */
 @Composable
@@ -32,6 +39,8 @@ internal fun SettingsTab(
     onImportTxt: () -> Unit,
     onShowIntro: () -> Unit,
     onOpenRepo: () -> Unit,
+    updateState: UpdateState,
+    onUpdateClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -98,6 +107,33 @@ internal fun SettingsTab(
             subtitle = stringResource(R.string.settings_github_subtitle),
             onClick = onOpenRepo,
         )
+        // One row runs the whole update flow; the subtitle is the state
+        // machine made visible: idle -> checking -> available -> downloading
+        // -> ready to install (or up to date / failed).
+        SettingsItem(
+            title = stringResource(R.string.settings_updates_title),
+            subtitle = when (updateState) {
+                UpdateState.Idle -> stringResource(R.string.settings_updates_idle)
+                UpdateState.Checking -> stringResource(R.string.settings_updates_checking)
+                UpdateState.UpToDate -> stringResource(R.string.settings_updates_up_to_date)
+                is UpdateState.Available -> stringResource(
+                    R.string.settings_updates_available,
+                    updateState.info.version,
+                )
+                is UpdateState.Downloading -> stringResource(
+                    R.string.settings_updates_downloading,
+                    updateState.percent,
+                )
+                is UpdateState.ReadyToInstall -> stringResource(
+                    R.string.settings_updates_ready,
+                    updateState.version,
+                )
+                UpdateState.Failed -> stringResource(R.string.settings_updates_failed)
+            },
+            onClick = onUpdateClick,
+            enabled = updateState != UpdateState.Checking &&
+                updateState !is UpdateState.Downloading,
+        )
         SettingsInfoItem(
             title = stringResource(R.string.settings_privacy_title),
             subtitle = stringResource(R.string.settings_privacy_subtitle),
@@ -144,6 +180,41 @@ private fun SettingsItem(
             text = subtitle,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Hands the downloaded update APK to the system installer. If the user
+ * hasn't yet allowed this app to install unknown apps, opens that settings
+ * screen instead - they grant once, come back, and tap the row again.
+ *
+ * No signature check here on purpose: Android refuses to install an APK
+ * whose signing cert differs from the installed app's, which is exactly the
+ * verification needed and can't be skipped.
+ */
+internal fun installApk(context: Context, file: File) {
+    if (!context.packageManager.canRequestPackageInstalls()) {
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    "package:${context.packageName}".toUri(),
+                )
+            )
+        }
+        return
+    }
+    runCatching {
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         )
     }
 }
