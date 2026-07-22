@@ -39,10 +39,22 @@ class UrlCanonicalizerTest {
     }
 
     @Test
-    fun `drops fragment`() {
+    fun `drops plain anchor fragment`() {
         assertEquals(
             "https://example.com/page",
             UrlCanonicalizer.cleanUrl("https://example.com/page#section-2"),
+        )
+    }
+
+    @Test
+    fun `preserves spa hash route fragments`() {
+        assertEquals(
+            "https://example.com#/settings/profile",
+            UrlCanonicalizer.cleanUrl("https://example.com/#/settings/profile"),
+        )
+        assertEquals(
+            "https://example.com#!/photos",
+            UrlCanonicalizer.cleanUrl("https://example.com/#!/photos"),
         )
     }
 
