@@ -20,19 +20,19 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v4
+        uses: gradle/actions/wrapper-validation@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
       - name: Set up Gradle (with caching)
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # Secrets are passed via env, NOT interpolated straight into the script.
       # `${{ }}` pastes the secret's raw text into the shell source, so any
@@ -157,7 +157,7 @@ jobs:
         run: cp app/build/outputs/apk/release/app-release.apk "$RELEASE_NAME.apk"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ${{ steps.rel.outputs.name }}
           files: ${{ steps.rel.outputs.name }}.apk
