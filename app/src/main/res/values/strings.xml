@@ -228,4 +228,5 @@
     <string name="settings_updates_ready">Version %1$s downloaded — tap to install</string>
     <string name="settings_updates_failed">Couldn\'t check for updates — tap to retry</string>
     <string name="msg_update_available">TidyLink %1$s is available — download it in Settings</string>
+    <string name="msg_install_failed">Couldn\'t open the installer</string>
 </resources>
