@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -102,6 +103,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Cap on .txt bulk import - ~100k URLs, far past any real bookmark export. */
 private const val MAX_IMPORT_BYTES = 5L * 1024 * 1024
@@ -946,13 +950,14 @@ private fun LinksGrid(
     // Adaptive grid: one column on phones, two-plus on tablets/landscape,
     // without stretching cards too wide. The extra bottom padding keeps the
     // floating pill nav from covering the last row.
+    Box(modifier = modifier) {
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Adaptive(minSize = 340.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
     ) {
         items(
             count = lazyLinks.itemCount,
@@ -986,5 +991,20 @@ private fun LinksGrid(
                 ),
             )
         }
+    }
+
+        // Bottom padding keeps the thumb clear of the floating "+" button.
+        val monthFormat = remember { SimpleDateFormat("MMM yyyy", Locale.getDefault()) }
+        FastScroller(
+            gridState = gridState,
+            itemCount = lazyLinks.itemCount,
+            bubbleTextForIndex = { index ->
+                lazyLinks.peek(index)?.timestamp?.let { monthFormat.format(Date(it)) }
+            },
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .padding(top = 4.dp, bottom = 96.dp),
+        )
     }
 }
