@@ -110,8 +110,10 @@ internal fun FastScroller(
             val thumbHeightPx = with(density) { THUMB_HEIGHT.toPx() }
             val travelPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(1f)
             val offsetY = (fraction * travelPx).roundToInt()
+            // itemCount can be 0 here: AnimatedVisibility keeps composing
+            // during the exit fade, and coerceIn(0, -1) throws.
             val targetIndex = (fraction * (itemCount - 1)).roundToInt()
-                .coerceIn(0, itemCount - 1)
+                .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
 
             if (dragging) {
                 bubbleTextForIndex(targetIndex)?.let { label ->
@@ -154,9 +156,11 @@ internal fun FastScroller(
                                 change.consume()
                                 dragFraction =
                                     (dragFraction + delta / travelPx).coerceIn(0f, 1f)
+                                // Same guard as targetIndex: the list can
+                                // empty mid-drag (paging invalidation).
                                 val target = (dragFraction * (itemCount - 1))
                                     .roundToInt()
-                                    .coerceIn(0, itemCount - 1)
+                                    .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
                                 scope.launch { gridState.scrollToItem(target) }
                             },
                         )
