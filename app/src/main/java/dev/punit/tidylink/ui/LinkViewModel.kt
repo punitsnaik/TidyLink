@@ -133,6 +133,16 @@ class LinkViewModel(
         ).flow
     }.cachedIn(viewModelScope)
 
+    /** Pinned links only, newest first - drives the Pinned tab. */
+    val pinnedLinks: Flow<PagingData<LinkEntity>> = Pager(
+        config = PagingConfig(
+            pageSize = 60,
+            prefetchDistance = 90,
+            enablePlaceholders = false,
+        ),
+        pagingSourceFactory = { repository.pinnedPagingSource() },
+    ).flow.cachedIn(viewModelScope)
+
     private data class TransientState(
         val isProcessing: Boolean,
         val isRefreshing: Boolean,
