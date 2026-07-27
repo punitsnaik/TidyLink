@@ -3,6 +3,7 @@ package dev.punit.tidylink.ui.dashboard
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -202,7 +203,7 @@ internal fun installApk(context: Context, file: File) {
                     "package:${context.packageName}".toUri(),
                 )
             )
-        }
+        }.onFailure { installFailedToast(context) }
         return
     }
     runCatching {
@@ -216,7 +217,13 @@ internal fun installApk(context: Context, file: File) {
                 .setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         )
-    }
+    }.onFailure { installFailedToast(context) }
+}
+
+/** Both failure paths above are fire-and-forget Intents; a toast is the only
+ *  surface left once the Settings row has already said "tap to install". */
+private fun installFailedToast(context: Context) {
+    Toast.makeText(context, R.string.msg_install_failed, Toast.LENGTH_SHORT).show()
 }
 
 /** Non-interactive settings row (about text, version). */
