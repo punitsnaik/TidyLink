@@ -15,8 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,40 +24,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -82,10 +70,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalResources
@@ -96,11 +88,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import dev.punit.tidylink.R
-import dev.punit.tidylink.data.local.CategoryCount
+import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
+import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UiMessage
 import dev.punit.tidylink.ui.UpdateState
@@ -108,9 +102,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-/** Destinations reachable from the bottom navigation bar. */
-private enum class DashboardTab { Links, Settings }
 
 /** Cap on .txt bulk import - ~100k URLs, far past any real bookmark export. */
 private const val MAX_IMPORT_BYTES = 5L * 1024 * 1024
@@ -162,9 +153,10 @@ fun DashboardScreen(
     var selectedLinkId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingLinkId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // Grid state lives here (not inside the tab branch) so the scroll
-    // position survives switching tabs.
+    // Grid states live here (not inside the tab branches) so scroll
+    // positions survive switching tabs.
     val gridState = rememberLazyGridState()
+    val pinnedGridState = rememberLazyGridState()
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
     // (added manually, shared in, or imported) - but not on deletes.
@@ -306,7 +298,7 @@ fun DashboardScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            if (uiState.isSelectionMode && currentTab == DashboardTab.Links) {
+            if (uiState.isSelectionMode && currentTab != DashboardTab.Settings) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.selected_count, uiState.selectedIds.size)) },
                     navigationIcon = {
@@ -333,225 +325,249 @@ fun DashboardScreen(
                         }
                     },
                 )
-            } else {
+            } else if (currentTab != DashboardTab.Links) {
                 TopAppBar(
                     title = {
                         Text(
                             when (currentTab) {
-                                DashboardTab.Links -> stringResource(R.string.app_name)
-                                DashboardTab.Settings -> stringResource(R.string.title_settings)
+                                DashboardTab.Pinned -> stringResource(R.string.nav_pinned)
+                                else -> stringResource(R.string.title_settings)
                             }
                         )
                     },
-                    // Sort and Refresh are ACTIONS, so they live in the app
-                    // bar - not in the bottom navigation bar, which is for
-                    // destinations only.
-                    actions = {
-                        if (currentTab == DashboardTab.Links) {
-                            IconButton(onClick = { showSortSheet = true }) {
-                                Icon(
-                                    SortIcon,
-                                    contentDescription = stringResource(R.string.action_sort),
-                                )
-                            }
-                            IconButton(
-                                onClick = viewModel::refreshAll,
-                                enabled = !uiState.isRefreshing,
-                            ) {
-                                if (uiState.isRefreshing) {
-                                    CircularProgressIndicator(
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Default.Refresh,
-                                        contentDescription = stringResource(R.string.action_refresh),
-                                    )
-                                }
-                            }
-                        }
-                    },
                 )
             }
+            // Links tab: no pinned app bar - the collapsing header (title,
+            // sort, refresh, search, category tiles) lives in the tab
+            // content below and hides on scroll.
         },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = currentTab == DashboardTab.Links,
-                    onClick = { currentTab = DashboardTab.Links },
-                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_links)) },
-                )
-                NavigationBarItem(
-                    selected = currentTab == DashboardTab.Settings,
-                    onClick = { currentTab = DashboardTab.Settings },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text(stringResource(R.string.nav_settings)) },
-                )
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            if (currentTab == DashboardTab.Links) {
-                FloatingActionButton(
-                    onClick = { showAddDialog = true },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.action_add_link))
-                }
-            }
+        // The floating pill nav replaces the old NavigationBar + FAB; it is
+        // overlaid on the content so the list scrolls underneath it.
+        snackbarHost = {
+            // Lifted clear of the floating pill nav.
+            SnackbarHost(
+                snackbarHostState,
+                modifier = Modifier.padding(bottom = 88.dp),
+            )
         },
     ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
         when (currentTab) {
-            DashboardTab.Links -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            ) {
-                // First-run guidance: links exist but AI categorization is
-                // off because no provider key was ever added.
-                AnimatedVisibility(
-                    visible = providers.isEmpty() &&
-                        !providerBannerDismissed &&
-                        lazyLinks.itemCount > 0,
-                ) {
-                    AddProviderBanner(
-                        onAdd = { showAiProviders = true },
-                        onDismiss = { providerBannerDismissed = true },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-
-                SearchBar(
-                    query = query,
-                    onQueryChange = viewModel::search,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-
-                // A failed query must not read as "0 results" - that's how a
-                // broken search query hid in plain sight.
-                if (lazyLinks.loadState.refresh is LoadState.Error) {
-                    Text(
-                        text = stringResource(R.string.msg_load_failed),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
-                } else if (query.isNotBlank() && lazyLinks.loadState.refresh !is LoadState.Loading) {
-                    Text(
-                        text = pluralStringResource(
-                            R.plurals.search_results,
-                            lazyLinks.itemCount,
-                            lazyLinks.itemCount,
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
-                }
-
-                AnimatedVisibility(visible = uiState.categories.isNotEmpty()) {
-                    CategoryChips(
-                        categories = uiState.categories,
-                        selected = uiState.selectedCategory,
-                        onSelect = viewModel::selectCategory,
-                    )
-                }
-
-                // One bar covers both foreground work (save/import) and
-                // background enrichment - the two used to be separate blocks,
-                // which stacked into a double bar whenever a save overlapped a
-                // bulk-import sweep. Animated in/out so the list doesn't jump.
-                AnimatedVisibility(
-                    visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        // Caption only when we know the remaining count.
-                        if (uiState.pendingEnrichment > 0) {
-                            Text(
-                                text = pluralStringResource(
-                                    R.plurals.banner_fetching_details,
-                                    uiState.pendingEnrichment,
-                                    uiState.pendingEnrichment,
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 2.dp, start = 4.dp),
-                            )
+            DashboardTab.Links -> {
+                // Collapsing header: hidden on scroll down, revealed by any
+                // upward scroll. Direction comes from the grid's nested
+                // scroll deltas. A list too short to scroll never hides it,
+                // and reaching the top always restores it, so the header
+                // can't get stuck off-screen.
+                var headerVisible by rememberSaveable { mutableStateOf(true) }
+                val headerScrollConnection = remember {
+                    object : NestedScrollConnection {
+                        override fun onPreScroll(
+                            available: Offset,
+                            source: NestedScrollSource,
+                        ): Offset {
+                            if (available.y < -4f && gridState.canScrollForward) {
+                                headerVisible = false
+                            } else if (available.y > 4f) {
+                                headerVisible = true
+                            }
+                            return Offset.Zero
                         }
                     }
                 }
+                LaunchedEffect(gridState.canScrollBackward) {
+                    if (!gridState.canScrollBackward) headerVisible = true
+                }
 
-                val listIsEmpty = lazyLinks.itemCount == 0 &&
-                    lazyLinks.loadState.refresh !is LoadState.Loading
-                if (listIsEmpty) {
-                    EmptyState(
-                        isFiltering = query.isNotBlank() || uiState.selectedCategory != null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
-                } else {
-                    // Entrance stagger only applies to the first screenful on
-                    // launch; cards composed later (while scrolling) must not
-                    // re-animate or scrolling feels janky.
-                    var animateInitialEntrance by remember { mutableStateOf(true) }
-                    LaunchedEffect(Unit) {
-                        delay(700)
-                        animateInitialEntrance = false
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .nestedScroll(headerScrollConnection),
+                ) {
+                    AnimatedVisibility(
+                        visible = headerVisible && !uiState.isSelectionMode,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                        Column {
+                            // Title row replaces the old pinned TopAppBar so
+                            // it can collapse with the rest of the header.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 4.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.app_name),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                IconButton(onClick = { showSortSheet = true }) {
+                                    Icon(
+                                        SortIcon,
+                                        contentDescription = stringResource(R.string.action_sort),
+                                    )
+                                }
+                                IconButton(
+                                    onClick = viewModel::refreshAll,
+                                    enabled = !uiState.isRefreshing,
+                                ) {
+                                    if (uiState.isRefreshing) {
+                                        CircularProgressIndicator(
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = stringResource(R.string.action_refresh),
+                                        )
+                                    }
+                                }
+                            }
+
+                            // First-run guidance: links exist but AI
+                            // categorization is off because no provider key
+                            // was ever added.
+                            AnimatedVisibility(
+                                visible = providers.isEmpty() &&
+                                    !providerBannerDismissed &&
+                                    lazyLinks.itemCount > 0,
+                            ) {
+                                AddProviderBanner(
+                                    onAdd = { showAiProviders = true },
+                                    onDismiss = { providerBannerDismissed = true },
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                )
+                            }
+
+                            SearchBar(
+                                query = query,
+                                onQueryChange = viewModel::search,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+
+                            // A failed query must not read as "0 results" -
+                            // that's how a broken search query hid in plain
+                            // sight.
+                            if (lazyLinks.loadState.refresh is LoadState.Error) {
+                                Text(
+                                    text = stringResource(R.string.msg_load_failed),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 20.dp),
+                                )
+                            } else if (query.isNotBlank() && lazyLinks.loadState.refresh !is LoadState.Loading) {
+                                Text(
+                                    text = pluralStringResource(
+                                        R.plurals.search_results,
+                                        lazyLinks.itemCount,
+                                        lazyLinks.itemCount,
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 20.dp),
+                                )
+                            }
+
+                            AnimatedVisibility(visible = uiState.categories.isNotEmpty()) {
+                                CategoryTiles(
+                                    categories = uiState.categories,
+                                    selected = uiState.selectedCategory,
+                                    onSelect = viewModel::selectCategory,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                            }
+                        }
                     }
-                    // Adaptive grid: one column on phones, two-plus on
-                    // tablets/landscape, without stretching cards too wide.
-                    LazyVerticalGrid(
-                        state = gridState,
-                        columns = GridCells.Adaptive(minSize = 340.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+
+                    // One bar covers both foreground work (save/import) and
+                    // background enrichment - the two used to be separate
+                    // blocks, which stacked into a double bar whenever a save
+                    // overlapped a bulk-import sweep. Lives OUTSIDE the
+                    // collapsing header so activity stays visible while
+                    // scrolling. Animated in/out so the list doesn't jump.
+                    AnimatedVisibility(
+                        visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            // Caption only when we know the remaining count.
+                            if (uiState.pendingEnrichment > 0) {
+                                Text(
+                                    text = pluralStringResource(
+                                        R.plurals.banner_fetching_details,
+                                        uiState.pendingEnrichment,
+                                        uiState.pendingEnrichment,
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp, start = 4.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    val listIsEmpty = lazyLinks.itemCount == 0 &&
+                        lazyLinks.loadState.refresh !is LoadState.Loading
+                    if (listIsEmpty) {
+                        EmptyState(
+                            text = stringResource(
+                                if (query.isNotBlank() || uiState.selectedCategory != null) {
+                                    R.string.empty_filtered
+                                } else {
+                                    R.string.empty_no_links
+                                }
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        )
+                    } else {
+                        LinksGrid(
+                            lazyLinks = lazyLinks,
+                            gridState = gridState,
+                            uiState = uiState,
+                            viewModel = viewModel,
+                            onOpenDetail = { selectedLinkId = it },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .weight(1f),
+                        )
+                    }
+                }
+            }
+
+            DashboardTab.Pinned -> {
+                val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
+                val pinnedEmpty = lazyPinned.itemCount == 0 &&
+                    lazyPinned.loadState.refresh !is LoadState.Loading
+                if (pinnedEmpty) {
+                    EmptyState(
+                        text = stringResource(R.string.empty_no_pinned),
                         modifier = Modifier
                             .fillMaxSize()
-                            .weight(1f),
-                    ) {
-                        items(
-                            count = lazyLinks.itemCount,
-                            key = lazyLinks.itemKey { it.id },
-                        ) { index ->
-                            val link = lazyLinks[index] ?: return@items
-                            LinkCard(
-                                link = link,
-                                selected = link.id in uiState.selectedIds,
-                                index = index,
-                                animateEntrance = animateInitialEntrance && index < 8,
-                                showActions = !uiState.isSelectionMode,
-                                isRefreshing = link.id in uiState.refreshingIds,
-                                onRefresh = { viewModel.refreshLink(link) },
-                                onDelete = { viewModel.deleteLink(link) },
-                                onClick = {
-                                    if (uiState.isSelectionMode) {
-                                        viewModel.toggleSelection(link.id)
-                                    } else {
-                                        selectedLinkId = link.id
-                                    }
-                                },
-                                onLongClick = { viewModel.toggleSelection(link.id) },
-                                modifier = Modifier.animateItem(
-                                    fadeInSpec = tween(220),
-                                    fadeOutSpec = tween(180),
-                                    placementSpec = spring(
-                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                        stiffness = Spring.StiffnessMediumLow,
-                                    ),
-                                ),
-                            )
-                        }
-                    }
+                            .padding(innerPadding),
+                    )
+                } else {
+                    LinksGrid(
+                        lazyLinks = lazyPinned,
+                        gridState = pinnedGridState,
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        onOpenDetail = { selectedLinkId = it },
+                        animateEntrance = false,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding),
+                    )
                 }
             }
 
@@ -587,6 +603,17 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .padding(innerPadding),
             )
+        }
+
+        BottomPillNav(
+            currentTab = currentTab,
+            onSelect = { currentTab = it },
+            onAdd = { showAddDialog = true },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp),
+        )
         }
     }
 
@@ -852,106 +879,6 @@ private val SortIcon: ImageVector by lazy {
     }.build()
 }
 
-/**
- * Category filter that scales: only the busiest categories get a chip
- * (sorted by link count), and an "All categories" chip opens a bottom
- * sheet with the full list - no more endless horizontal swiping.
- */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun CategoryChips(
-    categories: List<CategoryCount>,
-    selected: String?,
-    onSelect: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var showAllCategories by rememberSaveable { mutableStateOf(false) }
-    val topCategories = categories.take(MAX_VISIBLE_CATEGORY_CHIPS)
-    val hasOverflow = categories.size > topCategories.size
-
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        item {
-            FilterChip(
-                selected = selected == null,
-                onClick = { onSelect(null) },
-                label = { Text(stringResource(R.string.chip_all)) },
-            )
-        }
-        // Keep the active filter visible even when it isn't a top category.
-        if (selected != null && topCategories.none { it.category == selected }) {
-            item {
-                FilterChip(
-                    selected = true,
-                    onClick = { onSelect(null) },
-                    label = { Text(selected) },
-                )
-            }
-        }
-        items(topCategories, key = { it.category }) { cat ->
-            FilterChip(
-                selected = selected == cat.category,
-                onClick = { onSelect(if (selected == cat.category) null else cat.category) },
-                label = { Text(cat.category) },
-            )
-        }
-        if (hasOverflow) {
-            item {
-                FilterChip(
-                    selected = false,
-                    onClick = { showAllCategories = true },
-                    label = { Text(stringResource(R.string.chip_all_categories, categories.size)) },
-                )
-            }
-        }
-    }
-
-    if (showAllCategories) {
-        ModalBottomSheet(onDismissRequest = { showAllCategories = false }) {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.sheet_filter_by_category),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(12.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    categories.forEach { cat ->
-                        FilterChip(
-                            selected = selected == cat.category,
-                            onClick = {
-                                onSelect(if (selected == cat.category) null else cat.category)
-                                showAllCategories = false
-                            },
-                            label = {
-                                Text(
-                                    stringResource(
-                                        R.string.chip_category_with_count,
-                                        cat.category,
-                                        cat.count,
-                                    )
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private const val MAX_VISIBLE_CATEGORY_CHIPS = 8
-
 @Composable
 private fun SearchBar(
     query: String,
@@ -987,14 +914,77 @@ private fun SearchBar(
 }
 
 @Composable
-private fun EmptyState(isFiltering: Boolean, modifier: Modifier = Modifier) {
+private fun EmptyState(text: String, modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Text(
-            text = stringResource(
-                if (isFiltering) R.string.empty_filtered else R.string.empty_no_links
-            ),
+            text = text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** The paged link grid, shared by the Links and Pinned tabs. */
+@Composable
+private fun LinksGrid(
+    lazyLinks: LazyPagingItems<LinkEntity>,
+    gridState: LazyGridState,
+    uiState: LinkUiState,
+    viewModel: LinkViewModel,
+    onOpenDetail: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    animateEntrance: Boolean = true,
+) {
+    // Entrance stagger only applies to the first screenful on launch; cards
+    // composed later (while scrolling) must not re-animate or scrolling
+    // feels janky.
+    var animateInitialEntrance by remember { mutableStateOf(animateEntrance) }
+    LaunchedEffect(Unit) {
+        delay(700)
+        animateInitialEntrance = false
+    }
+    // Adaptive grid: one column on phones, two-plus on tablets/landscape,
+    // without stretching cards too wide. The extra bottom padding keeps the
+    // floating pill nav from covering the last row.
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Adaptive(minSize = 340.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier,
+    ) {
+        items(
+            count = lazyLinks.itemCount,
+            key = lazyLinks.itemKey { it.id },
+        ) { index ->
+            val link = lazyLinks[index] ?: return@items
+            LinkCard(
+                link = link,
+                selected = link.id in uiState.selectedIds,
+                index = index,
+                animateEntrance = animateInitialEntrance && index < 8,
+                showActions = !uiState.isSelectionMode,
+                isRefreshing = link.id in uiState.refreshingIds,
+                onRefresh = { viewModel.refreshLink(link) },
+                onDelete = { viewModel.deleteLink(link) },
+                onClick = {
+                    if (uiState.isSelectionMode) {
+                        viewModel.toggleSelection(link.id)
+                    } else {
+                        onOpenDetail(link.id)
+                    }
+                },
+                onLongClick = { viewModel.toggleSelection(link.id) },
+                modifier = Modifier.animateItem(
+                    fadeInSpec = tween(220),
+                    fadeOutSpec = tween(180),
+                    placementSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ),
+            )
+        }
     }
 }
