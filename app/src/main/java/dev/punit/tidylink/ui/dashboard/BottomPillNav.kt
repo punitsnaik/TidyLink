@@ -32,12 +32,13 @@ import dev.punit.tidylink.R
 internal enum class DashboardTab { Links, Pinned, Settings }
 
 /**
- * Floating pill navigation: a dark rounded bar where the selected tab is a
- * lighter inner pill with icon + label and unselected tabs are label-only,
+ * Floating pill navigation: a rounded bar where the selected tab is a
+ * tonal inner pill with icon + label and unselected tabs are label-only,
  * plus a separate round "+" button. Overlaid on content - the list scrolls
- * underneath. Colors come from the theme's inverse surface so the bar reads
- * "dark pill" in light theme and "light pill" in dark theme, and follows
- * dynamic color.
+ * underneath. Uses the highest surface container tone (NOT inverseSurface,
+ * which flips polarity and turned the bar light in dark theme): dark gray
+ * pill on a dark theme, light gray on a light one - the Google Photos
+ * look - and it follows dynamic color.
  */
 @Composable
 internal fun BottomPillNav(
@@ -49,7 +50,7 @@ internal fun BottomPillNav(
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Surface(
             shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.inverseSurface,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
             shadowElevation = 6.dp,
         ) {
             Row(
@@ -69,8 +70,8 @@ internal fun BottomPillNav(
         Surface(
             onClick = onAdd,
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.inverseSurface,
-            contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             shadowElevation = 6.dp,
         ) {
             Box(
@@ -109,11 +110,15 @@ private fun PillTab(
         onClick = onClick,
         shape = RoundedCornerShape(50),
         color = if (selected) {
-            MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.22f)
+            MaterialTheme.colorScheme.secondaryContainer
         } else {
             Color.Transparent
         },
-        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+        contentColor = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
