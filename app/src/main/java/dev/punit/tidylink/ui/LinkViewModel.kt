@@ -25,6 +25,7 @@ import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ProviderHealth
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -547,6 +548,8 @@ class LinkViewModel(
                 } else if (!auto) {
                     _updateState.value = UpdateState.UpToDate
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (!auto) _updateState.value = UpdateState.Failed
             }
@@ -564,6 +567,8 @@ class LinkViewModel(
                 }
                 _updateState.value =
                     UpdateState.ReadyToInstall(file, available.info.version)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _updateState.value = UpdateState.Failed
             }
