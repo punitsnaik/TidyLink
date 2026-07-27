@@ -94,6 +94,9 @@ class LinkRepository(
 
     fun getCategories(): Flow<List<CategoryCount>> = linkDao.getCategories()
 
+    /** Paged view of pinned links only - drives the Pinned tab. */
+    fun pinnedPagingSource(): PagingSource<Int, LinkEntity> = linkDao.pinnedPagingSource()
+
     /** Links still awaiting their first scrape - drives the progress banner. */
     fun pendingEnrichmentCount(): Flow<Int> = linkDao.countNeverScraped()
 

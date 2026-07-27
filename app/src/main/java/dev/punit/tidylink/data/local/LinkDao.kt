@@ -119,6 +119,10 @@ interface LinkDao {
     @Query("UPDATE links SET pinned = :pinned WHERE id = :id")
     suspend fun setPinned(id: String, pinned: Boolean)
 
+    /** Paged view of pinned links only - drives the Pinned tab. */
+    @Query("SELECT * FROM links WHERE pinned = 1 ORDER BY timestamp DESC")
+    fun pinnedPagingSource(): PagingSource<Int, LinkEntity>
+
     @Query("UPDATE links SET category = :category WHERE id IN (:ids)")
     suspend fun moveToCategory(ids: List<String>, category: String)
 
