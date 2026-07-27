@@ -61,11 +61,14 @@ Room database (FTS4 + Paging 3) ──► Compose UI
 - **Smart duplicate detection** - URLs are canonicalized before saving: tracking parameters (`si`, `utm_*`, `fbclid`, `igsh`, `gclid`…), fragments, and www/scheme variants are normalized away, so the same YouTube short shared twice with different `?si=` tokens is recognized as one link. Existing duplicates are merged automatically on refresh.
 - **Full-text search** - instant search across titles, descriptions, categories, tags, and summaries, backed by SQLite FTS4 with prefix matching ("kotl compo" finds "Kotlin Compose").
 - **Built to scale** - the list is paged (Paging 3) with all filtering and sorting done in SQLite, so a 10,000-link library scrolls like a 100-link one.
-- **Category filter chips** - one tap to filter by any category; an overflow sheet keeps large taxonomies manageable. "Tidy up categories" merges near-duplicates offline and, when needed, asks the LLM for a semantic merge.
+- **Category tiles** - icon + label tiles filter by any category with one tap; an overflow sheet keeps large taxonomies manageable. "Tidy up categories" merges near-duplicates offline and, when needed, asks the LLM for a semantic merge.
 - **Rich link cards** - adaptive grid (one column on phones, more on tablets) with thumbnails, category badges, summaries, and tags; tap a card for a full detail sheet with in-place refresh.
+- **Floating pill navigation** - a Google Photos style pill bar with Links, Pinned, and Settings tabs plus a round add button; the list scrolls underneath it.
+- **Distraction-free reading** - the title bar, search field, and category tiles slide away as you scroll down and return on the first upward scroll.
+- **Fast scroller** - a draggable thumb appears at the right edge while scrolling; drag it to fly through the library, with a bubble showing the saved month as you go.
 - **Video-aware** - YouTube, Shorts, Reels, TikTok, and Vimeo links get a play action; links open in the native app when installed, otherwise in a Chrome Custom Tab.
 - **Multi-select & undo** - long-press to select multiple links, bulk delete or re-categorize, undo from the snackbar. Swipe a card right to refresh it, left to delete.
-- **Pin & sort** - pin favorites to the top; sort by date, title, or category.
+- **Pin & sort** - pin favorites to float above the list, or browse just them in the dedicated Pinned tab; sort by date, title, or category.
 - **Backup & restore** - export the whole library as JSON and import it back on any device.
 - **Offline-resilient** - links saved while offline or rate-limited are stored immediately and enriched automatically by WorkManager when the network returns.
 - **First-run walkthrough** - a short intro on first launch covers sharing, search, and the optional AI setup, with a step to add a key on the spot. Skippable, and replayable any time from Settings → About → "Show intro again".
@@ -163,7 +166,7 @@ app/src/main/java/dev/punit/tidylink/
 │   └── work/                         # WorkManager workers (save, sweep, retry)
 └── ui/
     ├── LinkViewModel.kt              # UiState + paged links + all user actions
-    ├── dashboard/                    # Grid, search, chips, sheets, dialogs
+    ├── dashboard/                    # Grid, search, tiles, pill nav, fast scroller, sheets, dialogs
     ├── onboarding/                   # First-run intro pager (skippable, replayable)
     └── theme/                        # Material 3 theme (dynamic color)
 
@@ -191,6 +194,10 @@ A few things in here were not obvious and cost real debugging time. They're writ
   - **`FLAG_ACTIVITY_REQUIRE_NON_BROWSER` is API 30+.** It's an int constant, so it inlines happily at minSdk 29 and is then *ignored* by Android 10: `startActivity` succeeds into a browser, never throws, and the Custom Tab fallback becomes unreachable. `openLink` version-splits and queries the package manager for non-browser handlers on 29.
 
 - **`androidTest` method names are snake_case, not backticked.** Spaces in a DEX `SimpleName` need DEX 040, emitted only at minSdk 30+. At 29 the dexer emits DEX 039 and D8 fails the `assembleDebugAndroidTest` build outright. Unit tests under `src/test/` are JVM-only, never dexed, and keep their backticks.
+
+- **The pill nav's colors are surface tones, not `inverseSurface`.** `inverseSurface` flips polarity by design - dark in light theme, *light* in dark theme - so the first v1.2 build shipped a glowing light bar on an otherwise dark screen. The bar uses `surfaceContainerHighest`, which stays in the theme's own polarity. Cheap to fix, but it cost a release to notice: pick surface roles by *which theme's* surface you want, not by how the color looks in the preview you happen to be in.
+
+- **`AnimatedVisibility` composes its content during the exit fade.** The fast scroller's index math can therefore run against an already-empty list (filter to zero results, delete-all), and `coerceIn(0, itemCount - 1)` becomes `coerceIn(0, -1)` - which throws. Every index clamp in `FastScroller` bounds the upper limit with `coerceAtLeast(0)`. If you add UI that indexes into the list while animating out, do the same.
 
 - **The intro flag is read synchronously, on purpose.** `OnboardingStore` uses SharedPreferences, not DataStore, because `MainActivity` branches on it during the first composition. Prefs load in the store's constructor, so the first frame already knows the answer. A DataStore flow would emit its default first, flashing the empty dashboard before the intro replaced it - and "modernizing" it to DataStore reintroduces exactly that.
 
