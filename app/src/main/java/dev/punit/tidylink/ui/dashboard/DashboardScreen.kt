@@ -50,24 +50,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Cap on .txt bulk import - ~100k URLs, far past any real bookmark export. */
-private const val MAX_IMPORT_BYTES = 5L * 1024 * 1024
-
-/**
- * File size for a content:// URI, or null when the provider doesn't report one
- * (some don't). Null means "unknown", not "empty" - callers must not treat an
- * unknown size as a reason to block.
- */
-private fun android.content.ContentResolver.fileSize(uri: android.net.Uri): Long? =
-    query(uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
-        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) {
-            cursor.getLong(index)
-        } else {
-            null
-        }
-    }
-
 /** Public repository - linked from Settings → About. */
 private const val REPO_URL = "https://github.com/punitsnaik/TidyLink"
 
@@ -91,6 +73,7 @@ fun DashboardScreen(
     var currentTab by rememberSaveable { mutableStateOf(DashboardTab.Links) }
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showSortSheet by rememberSaveable { mutableStateOf(false) }
+    var showToolsSheet by rememberSaveable { mutableStateOf(false) }
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
     var showTidyConfirm by rememberSaveable { mutableStateOf(false) }
@@ -177,44 +160,6 @@ fun DashboardScreen(
                 resources.getString(R.string.msg_export_failed)
             }
             snackbarHostState.showSnackbar(text)
-        }
-    }
-
-    // Import URLs from a plain-text file: every http(s) link found gets
-    // queued through the normal scrape -> classify -> save pipeline.
-    val importTxtLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            val text = try {
-                // Size-check BEFORE reading. readText() allocates the whole file
-                // as one String, and blowing the heap raises OutOfMemoryError -
-                // an Error, not an Exception, so the catch below cannot save us;
-                // the process just dies. Cheaper to refuse a silly file (a video
-                // renamed to .txt) than to crash on it. 5MB is ~100k URLs.
-                val tooBig = withContext(Dispatchers.IO) {
-                    context.contentResolver.fileSize(uri)?.let { it > MAX_IMPORT_BYTES } == true
-                }
-                if (tooBig) {
-                    snackbarHostState.showSnackbar(
-                        resources.getString(R.string.msg_import_too_large)
-                    )
-                    return@launch
-                }
-                val fileText = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)
-                        ?.bufferedReader()?.use { it.readText() }
-                }.orEmpty()
-                viewModel.importUrlsFromText(fileText)
-                // The ViewModel reports every outcome (none found, import
-                // summary) through UiMessage - a second snackbar here would
-                // duplicate it.
-                null
-            } catch (e: Exception) {
-                resources.getString(R.string.msg_import_failed)
-            }
-            if (text != null) snackbarHostState.showSnackbar(text)
         }
     }
 
@@ -310,6 +255,7 @@ fun DashboardScreen(
                 onDismissProviderBanner = { providerBannerDismissed = true },
                 gridState = gridState,
                 onShowSortSheet = { showSortSheet = true },
+                onShowToolsSheet = { showToolsSheet = true },
                 onShowAiProviders = { showAiProviders = true },
                 onOpenDetail = { selectedLinkId = it },
                 modifier = Modifier
@@ -345,18 +291,10 @@ fun DashboardScreen(
 
             DashboardTab.Settings -> SettingsTab(
                 onAiProviders = { showAiProviders = true },
-                onTidyCategories = { showTidyConfirm = true },
-                onFetchMissingDetails = viewModel::refreshAll,
-                isFetchingMissingDetails = uiState.isRefreshing,
                 onExport = { exportLauncher.launch("tidylink-backup.json") },
                 onImportJson = {
                     importLauncher.launch(
                         arrayOf("application/json", "application/octet-stream")
-                    )
-                },
-                onImportTxt = {
-                    importTxtLauncher.launch(
-                        arrayOf("text/plain", "text/*", "application/octet-stream")
                     )
                 },
                 onShowIntro = viewModel::replayIntro,
@@ -446,6 +384,21 @@ fun DashboardScreen(
                 onDismiss = { editingLinkId = null },
             )
         }
+    }
+
+    if (showToolsSheet) {
+        ToolsSheet(
+            isRefreshing = uiState.isRefreshing,
+            onFetchMissingDetails = {
+                showToolsSheet = false
+                viewModel.refreshAll()
+            },
+            onTidyCategories = {
+                showToolsSheet = false
+                showTidyConfirm = true
+            },
+            onDismiss = { showToolsSheet = false },
+        )
     }
 
     if (showSortSheet) {
