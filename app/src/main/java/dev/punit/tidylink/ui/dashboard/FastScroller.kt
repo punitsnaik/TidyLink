@@ -40,6 +40,19 @@ import kotlin.math.roundToInt
 private val THUMB_HEIGHT = 48.dp
 
 /**
+ * Thumb position (0..1) to a link index, clamped into the list.
+ *
+ * [itemCount] can legitimately be 0 - AnimatedVisibility keeps composing
+ * during the exit fade, and paging can invalidate mid-drag - and a naive
+ * `coerceIn(0, itemCount - 1)` throws on an empty list. That crash shipped
+ * once; this is the one place it can happen, so it lives behind a test.
+ */
+internal fun fastScrollTargetIndex(fraction: Float, itemCount: Int): Int =
+    (fraction * (itemCount - 1))
+        .roundToInt()
+        .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+
+/**
  * Google Photos style fast scroller: a capsule thumb on the right edge that
  * appears while the list scrolls, fades away when idle, and can be dragged
  * to jump through the list. While dragging, a bubble next to the thumb
@@ -61,6 +74,7 @@ internal fun FastScroller(
     itemCount: Int,
     bubbleTextForIndex: (Int) -> String?,
     modifier: Modifier = Modifier,
+    indexOffset: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -69,14 +83,17 @@ internal fun FastScroller(
     var dragFraction by remember { mutableFloatStateOf(0f) }
 
     // Where the list actually is, as a 0..1 fraction of scrollable indexes.
-    val layoutFraction by remember {
+    // [indexOffset] discounts non-link items the grid puts ahead of the data
+    // (the collapsing header), so the thumb still maps over links only.
+    val layoutFraction by remember(indexOffset) {
         derivedStateOf {
             val info = gridState.layoutInfo
-            val scrollable = info.totalItemsCount - info.visibleItemsInfo.size
+            val scrollable = info.totalItemsCount - indexOffset - info.visibleItemsInfo.size
             if (scrollable <= 0) {
                 0f
             } else {
-                (gridState.firstVisibleItemIndex.toFloat() / scrollable).coerceIn(0f, 1f)
+                val first = (gridState.firstVisibleItemIndex - indexOffset).coerceAtLeast(0)
+                (first.toFloat() / scrollable).coerceIn(0f, 1f)
             }
         }
     }
@@ -110,10 +127,7 @@ internal fun FastScroller(
             val thumbHeightPx = with(density) { THUMB_HEIGHT.toPx() }
             val travelPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(1f)
             val offsetY = (fraction * travelPx).roundToInt()
-            // itemCount can be 0 here: AnimatedVisibility keeps composing
-            // during the exit fade, and coerceIn(0, -1) throws.
-            val targetIndex = (fraction * (itemCount - 1)).roundToInt()
-                .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+            val targetIndex = fastScrollTargetIndex(fraction, itemCount)
 
             if (dragging) {
                 bubbleTextForIndex(targetIndex)?.let { label ->
@@ -144,7 +158,7 @@ internal fun FastScroller(
                     .offset { IntOffset(0, offsetY) }
                     .width(28.dp)
                     .height(THUMB_HEIGHT)
-                    .pointerInput(itemCount, trackHeightPx) {
+                    .pointerInput(itemCount, trackHeightPx, indexOffset) {
                         detectVerticalDragGestures(
                             onDragStart = {
                                 dragging = true
@@ -156,12 +170,8 @@ internal fun FastScroller(
                                 change.consume()
                                 dragFraction =
                                     (dragFraction + delta / travelPx).coerceIn(0f, 1f)
-                                // Same guard as targetIndex: the list can
-                                // empty mid-drag (paging invalidation).
-                                val target = (dragFraction * (itemCount - 1))
-                                    .roundToInt()
-                                    .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
-                                scope.launch { gridState.scrollToItem(target) }
+                                val target = fastScrollTargetIndex(dragFraction, itemCount)
+                                scope.launch { gridState.scrollToItem(target + indexOffset) }
                             },
                         )
                     },
