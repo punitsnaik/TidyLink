@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +59,7 @@ internal fun LinksTab(
     onDismissProviderBanner: () -> Unit,
     gridState: LazyGridState,
     onShowSortSheet: () -> Unit,
+    onShowToolsSheet: () -> Unit,
     onShowAiProviders: () -> Unit,
     onOpenDetail: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -81,6 +80,7 @@ internal fun LinksTab(
                 providerBannerDismissed = providerBannerDismissed,
                 onDismissProviderBanner = onDismissProviderBanner,
                 onShowSortSheet = onShowSortSheet,
+                onShowToolsSheet = onShowToolsSheet,
                 onShowAiProviders = onShowAiProviders,
             )
         }
@@ -168,6 +168,7 @@ private fun LinksHeader(
     providerBannerDismissed: Boolean,
     onDismissProviderBanner: () -> Unit,
     onShowSortSheet: () -> Unit,
+    onShowToolsSheet: () -> Unit,
     onShowAiProviders: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -190,10 +191,12 @@ private fun LinksHeader(
                     contentDescription = stringResource(R.string.action_sort),
                 )
             }
-            IconButton(
-                onClick = viewModel::refreshAll,
-                enabled = !uiState.isRefreshing,
-            ) {
+            // Tools, not Refresh: refresh moved inside the sheet alongside
+            // tidy-up, because a bare refresh icon never said what it
+            // refreshed and the same action was also duplicated in Settings.
+            // Still shows a spinner while refreshing - that feedback was the
+            // one good thing about the old icon.
+            IconButton(onClick = onShowToolsSheet) {
                 if (uiState.isRefreshing) {
                     CircularProgressIndicator(
                         strokeWidth = 2.dp,
@@ -201,8 +204,8 @@ private fun LinksHeader(
                     )
                 } else {
                     Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = stringResource(R.string.action_refresh),
+                        TuneIcon,
+                        contentDescription = stringResource(R.string.action_tools),
                     )
                 }
             }

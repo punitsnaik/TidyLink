@@ -377,49 +377,6 @@ class LinkViewModel(
     suspend fun importLinks(stream: InputStream): Int = repository.importLinks(stream)
 
     /**
-     * Extracts every http(s) URL from arbitrary text (e.g. a .txt file of
-     * links) and bulk-imports them: new links appear immediately as
-     * placeholders, then a WorkManager sweep scrapes and classifies them in
-     * the background (survives leaving the app). Duplicates - including
-     * tracking-param variants - are skipped. All outcome messages (none
-     * found, import summary) surface through [message], so callers show
-     * nothing themselves.
-     */
-    fun importUrlsFromText(text: String) {
-        val urls = UrlCanonicalizer.extractUrls(text)
-        if (urls.isEmpty()) {
-            message.value = UiMessage.Text(R.string.msg_no_links_found_file)
-            return
-        }
-
-        viewModelScope.launch {
-            isProcessing.value = true
-            try {
-                val summary = repository.importUrls(urls)
-                message.value = when {
-                    summary.imported == 0 -> UiMessage.Text(
-                        R.string.msg_import_none_new,
-                        listOf(summary.duplicates),
-                    )
-                    summary.duplicates > 0 -> UiMessage.Text(
-                        R.string.msg_imported_with_dups,
-                        listOf(summary.imported, summary.duplicates),
-                    )
-                    else -> UiMessage.Plural(
-                        R.plurals.msg_imported,
-                        summary.imported,
-                        listOf(summary.imported),
-                    )
-                }
-            } catch (e: Exception) {
-                message.value = UiMessage.Text(R.string.msg_import_failed)
-            } finally {
-                isProcessing.value = false
-            }
-        }
-    }
-
-    /**
      * Merges the sprawling category list into a small set of broad ones
      * (single LLM call + bulk renames). The UI asks for confirmation first -
      * renames are not undoable.
