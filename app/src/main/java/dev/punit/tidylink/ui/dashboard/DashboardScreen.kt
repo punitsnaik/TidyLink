@@ -64,6 +64,7 @@ fun DashboardScreen(
     val lazyLinks = viewModel.links.collectAsLazyPagingItems()
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     // LocalResources (not context.resources): stays correct across locale /
@@ -73,6 +74,7 @@ fun DashboardScreen(
     var currentTab by rememberSaveable { mutableStateOf(DashboardTab.Links) }
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showSortSheet by rememberSaveable { mutableStateOf(false) }
+    var showThemeSheet by rememberSaveable { mutableStateOf(false) }
     var showToolsSheet by rememberSaveable { mutableStateOf(false) }
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
@@ -290,6 +292,8 @@ fun DashboardScreen(
             }
 
             DashboardTab.Settings -> SettingsTab(
+                themeMode = themeMode,
+                onThemeClick = { showThemeSheet = true },
                 onAiProviders = { showAiProviders = true },
                 onExport = { exportLauncher.launch("tidylink-backup.json") },
                 onImportJson = {
@@ -409,6 +413,17 @@ fun DashboardScreen(
                 showSortSheet = false
             },
             onDismiss = { showSortSheet = false },
+        )
+    }
+
+    if (showThemeSheet) {
+        ThemeSheet(
+            current = themeMode,
+            onSelect = { mode ->
+                viewModel.setThemeMode(mode)
+                showThemeSheet = false
+            },
+            onDismiss = { showThemeSheet = false },
         )
     }
 
