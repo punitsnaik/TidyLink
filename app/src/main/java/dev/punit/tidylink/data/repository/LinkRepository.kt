@@ -39,9 +39,6 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
-/** Result of a bulk URL import (enrichment continues in the background). */
-data class ImportSummary(val imported: Int, val duplicates: Int)
-
 /** Result of saving a single URL. */
 data class SaveResult(val link: LinkEntity, val alreadyExisted: Boolean)
 
@@ -291,42 +288,6 @@ class LinkRepository(
         )
         linkDao.upsert(updated)
         return updated
-    }
-
-    /**
-     * Bulk import: canonicalizes and de-duplicates the URLs, inserts all new
-     * ones as placeholders in a single write, then hands scraping and
-     * classification to [EnrichmentSweepWorker] - so a 1,000-link import
-     * survives the user leaving the app, Doze, and process death.
-     */
-    suspend fun importUrls(rawUrls: List<String>): ImportSummary {
-        val cleaned = rawUrls.map { UrlCanonicalizer.cleanUrl(it) }
-            .distinctBy { UrlCanonicalizer.dedupeKey(it) }
-        val existingKeys = linkDao.getAllDedupeKeys().toHashSet()
-        // Legacy rows may not be indexed yet (backfill still running).
-        if (linkDao.countMissingDedupeKeys() > 0) {
-            existingKeys += linkDao.getMissingDedupeKeys().map { UrlCanonicalizer.dedupeKey(it.url) }
-        }
-        val newUrls = cleaned.filterNot { UrlCanonicalizer.dedupeKey(it) in existingKeys }
-        val duplicates = cleaned.size - newUrls.size
-        if (newUrls.isEmpty()) return ImportSummary(0, duplicates)
-
-        linkDao.upsertAll(
-            newUrls.map { url ->
-                LinkEntity(
-                    url = url,
-                    title = UrlCanonicalizer.placeholderTitle(url),
-                    description = "",
-                    imageUrl = null,
-                    category = FALLBACK_CATEGORY,
-                    tags = emptyList(),
-                    aiSummary = "",
-                    dedupeKey = UrlCanonicalizer.dedupeKey(url),
-                )
-            }
-        )
-        EnrichmentSweepWorker.enqueue(appContext)
-        return ImportSummary(newUrls.size, duplicates)
     }
 
     /**

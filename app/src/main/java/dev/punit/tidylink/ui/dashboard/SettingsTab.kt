@@ -9,18 +9,27 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
@@ -28,16 +37,22 @@ import dev.punit.tidylink.R
 import dev.punit.tidylink.ui.UpdateState
 import java.io.File
 
-/** Settings tab: configuration, data management, about. */
+/**
+ * Settings: things you CONFIGURE, in three groups - AI, Backup, About.
+ *
+ * Deliberately holds no library maintenance actions. "Fetch missing details"
+ * and "Tidy up categories" moved to [ToolsSheet], one tap from the list,
+ * because they are operations performed ON the library rather than settings;
+ * fetch-missing was also a duplicate of the header's old Refresh icon.
+ *
+ * Bulk .txt URL import was removed with them. JSON export/import remain as
+ * the single Backup pair.
+ */
 @Composable
 internal fun SettingsTab(
     onAiProviders: () -> Unit,
-    onTidyCategories: () -> Unit,
-    onFetchMissingDetails: () -> Unit,
-    isFetchingMissingDetails: Boolean,
     onExport: () -> Unit,
     onImportJson: () -> Unit,
-    onImportTxt: () -> Unit,
     onShowIntro: () -> Unit,
     onOpenRepo: () -> Unit,
     updateState: UpdateState,
@@ -50,6 +65,11 @@ internal fun SettingsTab(
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: "?"
     }
+    var showPrivacy by rememberSaveable { mutableStateOf(false) }
+
+    if (showPrivacy) {
+        PrivacySheet(onDismiss = { showPrivacy = false })
+    }
 
     Column(
         modifier = modifier
@@ -57,94 +77,91 @@ internal fun SettingsTab(
             .padding(horizontal = 16.dp),
     ) {
         SettingsSectionHeader(stringResource(R.string.settings_section_ai))
-        SettingsItem(
-            title = stringResource(R.string.settings_ai_providers_title),
-            subtitle = stringResource(R.string.settings_ai_providers_subtitle),
-            onClick = onAiProviders,
-        )
-        SettingsItem(
-            title = stringResource(R.string.settings_tidy_title),
-            subtitle = stringResource(R.string.settings_tidy_subtitle),
-            onClick = onTidyCategories,
-        )
+        SettingsGroup {
+            SettingsItem(
+                title = stringResource(R.string.settings_ai_providers_title),
+                subtitle = stringResource(R.string.settings_ai_providers_subtitle),
+                onClick = onAiProviders,
+            )
+        }
 
-        SettingsSectionHeader(stringResource(R.string.settings_section_data))
-        // Same action as the app-bar Refresh icon, kept here under its
-        // explicit name: the icon alone doesn't say what it refreshes.
-        SettingsItem(
-            title = stringResource(R.string.settings_fetch_missing_title),
-            subtitle = if (isFetchingMissingDetails) {
-                stringResource(R.string.settings_fetch_missing_busy)
-            } else {
-                stringResource(R.string.settings_fetch_missing_subtitle)
-            },
-            onClick = onFetchMissingDetails,
-            enabled = !isFetchingMissingDetails,
-        )
-        SettingsItem(
-            title = stringResource(R.string.settings_export_title),
-            subtitle = stringResource(R.string.settings_export_subtitle),
-            onClick = onExport,
-        )
-        SettingsItem(
-            title = stringResource(R.string.settings_import_json_title),
-            subtitle = stringResource(R.string.settings_import_json_subtitle),
-            onClick = onImportJson,
-        )
-        SettingsItem(
-            title = stringResource(R.string.settings_import_txt_title),
-            subtitle = stringResource(R.string.settings_import_txt_subtitle),
-            onClick = onImportTxt,
-        )
+        SettingsSectionHeader(stringResource(R.string.settings_section_backup))
+        SettingsGroup {
+            SettingsItem(
+                title = stringResource(R.string.settings_export_title),
+                subtitle = stringResource(R.string.settings_export_subtitle),
+                onClick = onExport,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_import_json_title),
+                subtitle = stringResource(R.string.settings_import_json_subtitle),
+                onClick = onImportJson,
+            )
+        }
+
+        SettingsSectionHeader(stringResource(R.string.settings_section_help))
+        SettingsGroup {
+            SettingsItem(
+                title = stringResource(R.string.settings_show_intro_title),
+                subtitle = stringResource(R.string.settings_show_intro_subtitle),
+                onClick = onShowIntro,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_github_title),
+                subtitle = stringResource(R.string.settings_github_subtitle),
+                onClick = onOpenRepo,
+            )
+        }
 
         SettingsSectionHeader(stringResource(R.string.settings_section_about))
-        SettingsItem(
-            title = stringResource(R.string.settings_show_intro_title),
-            subtitle = stringResource(R.string.settings_show_intro_subtitle),
-            onClick = onShowIntro,
-        )
-        SettingsItem(
-            title = stringResource(R.string.settings_github_title),
-            subtitle = stringResource(R.string.settings_github_subtitle),
-            onClick = onOpenRepo,
-        )
-        // One row runs the whole update flow; the subtitle is the state
-        // machine made visible: idle -> checking -> available -> downloading
-        // -> ready to install (or up to date / failed).
-        SettingsItem(
-            title = stringResource(R.string.settings_updates_title),
-            subtitle = when (updateState) {
-                UpdateState.Idle -> stringResource(R.string.settings_updates_idle)
-                UpdateState.Checking -> stringResource(R.string.settings_updates_checking)
-                UpdateState.UpToDate -> stringResource(R.string.settings_updates_up_to_date)
-                is UpdateState.Available -> stringResource(
-                    R.string.settings_updates_available,
-                    updateState.info.version,
-                )
-                is UpdateState.Downloading -> stringResource(
-                    R.string.settings_updates_downloading,
-                    updateState.percent,
-                )
-                is UpdateState.ReadyToInstall -> stringResource(
-                    R.string.settings_updates_ready,
-                    updateState.version,
-                )
-                UpdateState.Failed -> stringResource(R.string.settings_updates_failed)
-            },
-            onClick = onUpdateClick,
-            enabled = updateState != UpdateState.Checking &&
-                updateState !is UpdateState.Downloading,
-        )
-        SettingsInfoItem(
-            title = stringResource(R.string.settings_privacy_title),
-            subtitle = stringResource(R.string.settings_privacy_subtitle),
-        )
-        SettingsInfoItem(
-            title = stringResource(R.string.app_name),
-            subtitle = stringResource(R.string.settings_version, versionName),
-        )
+        SettingsGroup {
+            // One row runs the whole update flow; the subtitle is the state
+            // machine made visible: idle -> checking -> available ->
+            // downloading -> ready to install (or up to date / failed).
+            SettingsItem(
+                title = stringResource(R.string.settings_updates_title),
+                subtitle = when (updateState) {
+                    UpdateState.Idle -> stringResource(R.string.settings_updates_idle)
+                    UpdateState.Checking -> stringResource(R.string.settings_updates_checking)
+                    UpdateState.UpToDate -> stringResource(R.string.settings_updates_up_to_date)
+                    is UpdateState.Available -> stringResource(
+                        R.string.settings_updates_available,
+                        updateState.info.version,
+                    )
+                    is UpdateState.Downloading -> stringResource(
+                        R.string.settings_updates_downloading,
+                        updateState.percent,
+                    )
+                    is UpdateState.ReadyToInstall -> stringResource(
+                        R.string.settings_updates_ready,
+                        updateState.version,
+                    )
+                    UpdateState.Failed -> stringResource(R.string.settings_updates_failed)
+                },
+                onClick = onUpdateClick,
+                enabled = updateState != UpdateState.Checking &&
+                    updateState !is UpdateState.Downloading,
+            )
+            SettingsDivider()
+            // Summary row, full text in a sheet: the privacy paragraph is
+            // five lines and used to dominate this card, pushing the version
+            // number off the bottom of most screens.
+            SettingsItem(
+                title = stringResource(R.string.settings_privacy_title),
+                subtitle = stringResource(R.string.settings_privacy_summary),
+                onClick = { showPrivacy = true },
+            )
+            SettingsDivider()
+            SettingsInfoItem(
+                title = stringResource(R.string.app_name),
+                subtitle = stringResource(R.string.settings_version, versionName),
+            )
+        }
 
-        Spacer(Modifier.height(24.dp))
+        // Clears the floating pill nav so the last row stays tappable.
+        Spacer(Modifier.height(120.dp))
     }
 }
 
@@ -154,7 +171,58 @@ private fun SettingsSectionHeader(title: String) {
         text = title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp, start = 4.dp),
+        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp, start = 8.dp),
+    )
+}
+
+/**
+ * Rounded surface holding one section's rows, so the grouping is visible
+ * rather than merely implied by the heading above it. Matches the pill nav
+ * and category tiles; uses theme tokens only, no literal colours.
+ */
+@Composable
+private fun SettingsGroup(content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column { content() }
+    }
+}
+
+/** Full privacy text, kept out of the About card so it stays readable. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PrivacySheet(onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_privacy_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.settings_privacy_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Hairline between rows inside a group, inset past the text start. */
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp),
     )
 }
 
@@ -168,9 +236,8 @@ private fun SettingsItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
             text = title,
@@ -235,7 +302,7 @@ private fun SettingsInfoItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
             text = title,

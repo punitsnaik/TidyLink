@@ -73,9 +73,6 @@ interface LinkDao {
     @Query("SELECT * FROM links WHERE dedupeKey = :key LIMIT 1")
     suspend fun getByDedupeKey(key: String): LinkEntity?
 
-    /** All dedupe keys - bulk-import duplicate filtering without full rows. */
-    @Query("SELECT dedupeKey FROM links WHERE dedupeKey != ''")
-    suspend fun getAllDedupeKeys(): List<String>
 
     /** Legacy rows saved before the dedupeKey column existed. */
     @Query("SELECT * FROM links WHERE dedupeKey = ''")
