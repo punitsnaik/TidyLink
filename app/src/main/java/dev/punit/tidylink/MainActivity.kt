@@ -5,8 +5,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.punit.tidylink.data.settings.ThemeMode
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.dashboard.DashboardScreen
 import dev.punit.tidylink.ui.onboarding.OnboardingScreen
@@ -22,7 +24,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            TidyLinkTheme {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            TidyLinkTheme(darkTheme = darkTheme) {
                 // Gated here rather than inside DashboardScreen so the intro
                 // is a sibling of the dashboard, not a layer on top of it.
                 // The flag is loaded synchronously from prefs (OnboardingStore),
