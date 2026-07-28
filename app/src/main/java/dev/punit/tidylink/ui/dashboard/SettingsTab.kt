@@ -34,11 +34,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.settings.ThemeMode
 import dev.punit.tidylink.ui.UpdateState
 import java.io.File
 
 /**
- * Settings: things you CONFIGURE, in three groups - AI, Backup, About.
+ * Settings: things you CONFIGURE, in four groups - Appearance, AI, Backup, About.
  *
  * Deliberately holds no library maintenance actions. "Fetch missing details"
  * and "Tidy up categories" moved to [ToolsSheet], one tap from the list,
@@ -50,6 +51,8 @@ import java.io.File
  */
 @Composable
 internal fun SettingsTab(
+    themeMode: ThemeMode,
+    onThemeClick: () -> Unit,
     onAiProviders: () -> Unit,
     onExport: () -> Unit,
     onImportJson: () -> Unit,
@@ -76,6 +79,15 @@ internal fun SettingsTab(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp),
     ) {
+        SettingsSectionHeader(stringResource(R.string.settings_section_appearance))
+        SettingsGroup {
+            SettingsItem(
+                title = stringResource(R.string.settings_theme_title),
+                subtitle = themeLabel(themeMode),
+                onClick = onThemeClick,
+            )
+        }
+
         SettingsSectionHeader(stringResource(R.string.settings_section_ai))
         SettingsGroup {
             SettingsItem(
