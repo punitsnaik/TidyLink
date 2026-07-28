@@ -68,6 +68,12 @@
     <string name="sort_category">By category</string>
 
     <!-- Settings -->
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="settings_theme_title">Theme</string>
+    <string name="sheet_theme_title">Theme</string>
+    <string name="theme_system">System default</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="settings_section_ai">AI</string>
     <string name="settings_ai_providers_title">AI providers</string>
     <string name="settings_ai_providers_subtitle">API keys used to categorize and summarize links</string>

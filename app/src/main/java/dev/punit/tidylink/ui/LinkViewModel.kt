@@ -23,6 +23,8 @@ import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ProviderHealth
+import dev.punit.tidylink.data.settings.ThemeMode
+import dev.punit.tidylink.data.settings.ThemeStore
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
 import kotlinx.coroutines.CancellationException
@@ -99,6 +101,7 @@ class LinkViewModel(
     private val repository: LinkRepository,
     private val providerStore: LlmProviderStore,
     private val onboardingStore: OnboardingStore,
+    private val themeStore: ThemeStore,
     private val aiService: AiCategorizationService,
     private val updateChecker: UpdateChecker,
 ) : ViewModel() {
@@ -547,6 +550,15 @@ class LinkViewModel(
         onboardingStore.replayIntro()
     }
 
+    // --- Theme -----------------------------------------------------------
+
+    /** Settings → Appearance. Read synchronously by [ThemeStore] on startup. */
+    val themeMode: StateFlow<ThemeMode> = themeStore.themeMode
+
+    fun setThemeMode(mode: ThemeMode) {
+        themeStore.setThemeMode(mode)
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -556,6 +568,7 @@ class LinkViewModel(
                     repository = app.container.linkRepository,
                     providerStore = app.container.llmProviderStore,
                     onboardingStore = app.container.onboardingStore,
+                    themeStore = app.container.themeStore,
                     aiService = app.container.aiService,
                     updateChecker = app.container.updateChecker,
                 )
