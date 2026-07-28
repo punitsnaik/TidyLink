@@ -8,7 +8,6 @@
     <string name="action_move_to_category">Move to category</string>
     <string name="action_delete_selected">Delete selected</string>
     <string name="action_sort">Sort</string>
-    <string name="action_refresh">Fetch missing details</string>
     <string name="nav_links">Links</string>
     <string name="nav_pinned">Pinned</string>
     <string name="nav_settings">Settings</string>
@@ -72,18 +71,21 @@
     <string name="settings_section_ai">AI</string>
     <string name="settings_ai_providers_title">AI providers</string>
     <string name="settings_ai_providers_subtitle">API keys used to categorize and summarize links</string>
-    <string name="settings_tidy_title">Tidy up categories</string>
-    <string name="settings_tidy_subtitle">Merge similar categories into a smaller set</string>
-    <string name="settings_section_data">Data</string>
-    <string name="settings_fetch_missing_title">Fetch missing details</string>
-    <string name="settings_fetch_missing_subtitle">Scrape and categorize links that are still incomplete</string>
-    <string name="settings_fetch_missing_busy">Fetching…</string>
+    <string name="settings_section_backup">Backup</string>
     <string name="settings_export_title">Export links (JSON)</string>
     <string name="settings_export_subtitle">Save a backup of all your links</string>
     <string name="settings_import_json_title">Import links (JSON)</string>
     <string name="settings_import_json_subtitle">Restore links from a backup file</string>
-    <string name="settings_import_txt_title">Import URLs (TXT)</string>
-    <string name="settings_import_txt_subtitle">Bulk-add every link found in a text file</string>
+
+    <!-- Tools sheet: library maintenance, reached from the Links header. -->
+    <string name="sheet_tools_title">Tools</string>
+    <string name="action_tools">Tools</string>
+    <string name="tools_fetch_missing_title">Fetch missing details</string>
+    <string name="tools_fetch_missing_subtitle">Scrape and categorize links that are still incomplete</string>
+    <string name="tools_fetch_missing_busy">Fetching…</string>
+    <string name="tools_tidy_title">Tidy up categories</string>
+    <string name="tools_tidy_subtitle">Merge similar categories into a smaller set. This can\'t be undone.</string>
+    <string name="settings_section_help">Help</string>
     <string name="settings_section_about">About</string>
     <string name="settings_show_intro_title">Show intro again</string>
     <string name="settings_show_intro_subtitle">Replay the walkthrough you saw on first launch</string>
@@ -91,6 +93,7 @@
     <string name="settings_github_title">Source code &amp; issues</string>
     <string name="settings_github_subtitle">github.com/punitsnaik/TidyLink</string>
     <string name="settings_privacy_title">Privacy</string>
+    <string name="settings_privacy_summary">What leaves your device, and what doesn\'t</string>
     <string name="settings_privacy_subtitle">Link titles and descriptions are sent to your configured AI provider for categorization. Favicons are loaded from Google\'s favicon service. Nothing else leaves your device.</string>
 
     <!-- Tidy categories confirmation -->
@@ -153,20 +156,12 @@
         <item quantity="other">%d links deleted</item>
     </plurals>
     <string name="action_undo">Undo</string>
-    <string name="msg_import_none_new">No new links — %1$d already saved</string>
-    <plurals name="msg_imported">
-        <item quantity="one">Imported %d link — fetching details in the background</item>
-        <item quantity="other">Imported %d links — fetching details in the background</item>
-    </plurals>
-    <string name="msg_imported_with_dups">Imported %1$d links, skipped %2$d duplicates — fetching details in the background</string>
     <string name="msg_import_failed">Import failed</string>
-    <string name="msg_import_too_large">That file is too large to import (limit 5 MB)</string>
     <string name="msg_import_invalid">Import failed: invalid file</string>
     <plurals name="msg_imported_json">
         <item quantity="one">Imported %d link</item>
         <item quantity="other">Imported %d links</item>
     </plurals>
-    <string name="msg_no_links_found_file">No links found in file</string>
     <string name="msg_export_done">Links exported</string>
     <string name="msg_export_failed">Export failed</string>
     <plurals name="msg_tidy_merged">
