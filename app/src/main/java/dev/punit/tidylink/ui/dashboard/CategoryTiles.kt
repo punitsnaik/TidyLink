@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -78,8 +77,9 @@ internal fun CategoryTiles(
     val topCategories = categories.take(MAX_VISIBLE_CATEGORY_TILES)
     val hasOverflow = categories.size > topCategories.size
 
+    // No contentPadding: the caller owns the horizontal gutter (inside the
+    // grid it comes from contentPadding), and two gutters double-indent.
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.fillMaxWidth(),
     ) {

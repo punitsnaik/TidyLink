@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
@@ -44,7 +45,14 @@ internal fun EmptyState(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** The paged link grid, shared by the Links and Pinned tabs. */
+/**
+ * The paged link grid, shared by the Links and Pinned tabs.
+ *
+ * [header] is emitted as a full-width first item, so it scrolls away with
+ * the content instead of animating its own height. That is deliberate: an
+ * AnimatedVisibility header above the grid re-measures the whole grid on
+ * every frame of the collapse, which is what made scrolling stutter.
+ */
 @Composable
 internal fun LinksGrid(
     lazyLinks: LazyPagingItems<LinkEntity>,
@@ -54,6 +62,7 @@ internal fun LinksGrid(
     onOpenDetail: (String) -> Unit,
     modifier: Modifier = Modifier,
     animateEntrance: Boolean = true,
+    header: (@Composable () -> Unit)? = null,
 ) {
     // Entrance stagger only applies to the first screenful on launch; cards
     // composed later (while scrolling) must not re-animate or scrolling
@@ -75,6 +84,15 @@ internal fun LinksGrid(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (header != null) {
+            item(
+                key = "header",
+                span = { GridItemSpan(maxLineSpan) },
+                contentType = "header",
+            ) {
+                header()
+            }
+        }
         items(
             count = lazyLinks.itemCount,
             key = lazyLinks.itemKey { it.id },
@@ -114,6 +132,8 @@ internal fun LinksGrid(
         FastScroller(
             gridState = gridState,
             itemCount = lazyLinks.itemCount,
+            // The header occupies grid index 0, so link N is grid item N + 1.
+            indexOffset = if (header != null) 1 else 0,
             bubbleTextForIndex = { index ->
                 lazyLinks.peek(index)?.timestamp?.let { monthFormat.format(Date(it)) }
             },
