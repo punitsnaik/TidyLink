@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
+import dev.punit.tidylink.data.UrlCanonicalizer
 import dev.punit.tidylink.data.work.SaveUrlWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,11 +74,17 @@ class ShareReceiverActivity : Activity() {
         }
     }
 
+    /**
+     * First http(s) URL in the shared text, falling back to a bare domain
+     * typed without a scheme ("example.com") - cleanUrl adds https:// later.
+     *
+     * Extraction is [UrlCanonicalizer]'s, not a local regex: this used to
+     * carry its own `https?://\S+`, which swallows punctuation that clings to
+     * a URL in prose - sharing "Check this (https://example.com/page)." saved
+     * the trailing ")." as part of the address. The shared helper trims those
+     * and is unit-tested; keeping a second copy here only kept the bug.
+     */
     private fun extractUrl(text: String): String? =
-        URL_REGEX.find(text)?.value
+        UrlCanonicalizer.extractUrls(text).firstOrNull()
             ?: text.trim().takeIf { it.contains('.') && !it.contains(' ') }
-
-    private companion object {
-        val URL_REGEX = Regex("""https?://\S+""")
-    }
 }
