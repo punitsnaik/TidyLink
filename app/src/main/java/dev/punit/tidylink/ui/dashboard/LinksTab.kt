@@ -21,18 +21,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -44,14 +34,21 @@ import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
 
+/** Gutter shared by the grid's contentPadding and the empty-state header. */
+private val HEADER_GUTTER = 16.dp
+
 /**
- * The Links tab: collapsing header (title row, provider banner, search,
- * result count, category tiles), progress bar, and the link grid.
+ * The Links tab: a pinned progress bar, then the link grid whose FIRST ITEM
+ * is the header (title row, provider banner, search, result count, category
+ * tiles).
  *
- * The header hides on scroll down and is revealed by any upward scroll.
- * Direction comes from the grid's nested scroll deltas. A list too short to
- * scroll never hides it, and reaching the top always restores it, so the
- * header can't get stuck off-screen.
+ * The header is a grid item on purpose, not a collapsing block above the
+ * grid. It used to be an AnimatedVisibility driven by nested-scroll deltas,
+ * which animated the header's HEIGHT - so it snapped away on its own clock
+ * instead of following the finger, and forced the whole grid to re-measure
+ * on every frame of the collapse. As an item it scrolls 1:1 with the
+ * content, with no animation to stutter. Cost of the trade: the header
+ * returns when you scroll back to the top, not on any small upward flick.
  */
 @Composable
 internal fun LinksTab(
@@ -68,133 +65,33 @@ internal fun LinksTab(
     onOpenDetail: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var headerVisible by rememberSaveable { mutableStateOf(true) }
-    val headerScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (available.y < -4f && gridState.canScrollForward) {
-                    headerVisible = false
-                } else if (available.y > 4f) {
-                    headerVisible = true
-                }
-                return Offset.Zero
-            }
+    // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
+    // header stands down entirely - null, not an empty item, to keep the
+    // grid's index mapping honest for the fast scroller.
+    val header: (@Composable () -> Unit)? = if (uiState.isSelectionMode) {
+        null
+    } else {
+        {
+            LinksHeader(
+                viewModel = viewModel,
+                uiState = uiState,
+                query = query,
+                lazyLinks = lazyLinks,
+                hasProviders = hasProviders,
+                providerBannerDismissed = providerBannerDismissed,
+                onDismissProviderBanner = onDismissProviderBanner,
+                onShowSortSheet = onShowSortSheet,
+                onShowAiProviders = onShowAiProviders,
+            )
         }
     }
-    LaunchedEffect(gridState.canScrollBackward) {
-        if (!gridState.canScrollBackward) headerVisible = true
-    }
 
-    Column(
-        modifier = modifier.nestedScroll(headerScrollConnection),
-    ) {
-        AnimatedVisibility(
-            visible = headerVisible && !uiState.isSelectionMode,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
-        ) {
-            Column {
-                // Title row replaces the old pinned TopAppBar so it can
-                // collapse with the rest of the header.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 4.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = onShowSortSheet) {
-                        Icon(
-                            SortIcon,
-                            contentDescription = stringResource(R.string.action_sort),
-                        )
-                    }
-                    IconButton(
-                        onClick = viewModel::refreshAll,
-                        enabled = !uiState.isRefreshing,
-                    ) {
-                        if (uiState.isRefreshing) {
-                            CircularProgressIndicator(
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        } else {
-                            Icon(
-                                Icons.Default.Refresh,
-                                contentDescription = stringResource(R.string.action_refresh),
-                            )
-                        }
-                    }
-                }
-
-                // First-run guidance: links exist but AI categorization is
-                // off because no provider key was ever added.
-                AnimatedVisibility(
-                    visible = !hasProviders &&
-                        !providerBannerDismissed &&
-                        lazyLinks.itemCount > 0,
-                ) {
-                    AddProviderBanner(
-                        onAdd = onShowAiProviders,
-                        onDismiss = onDismissProviderBanner,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
-                }
-
-                SearchBar(
-                    query = query,
-                    onQueryChange = viewModel::search,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-
-                // A failed query must not read as "0 results" - that's how a
-                // broken search query hid in plain sight.
-                if (lazyLinks.loadState.refresh is LoadState.Error) {
-                    Text(
-                        text = stringResource(R.string.msg_load_failed),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
-                } else if (query.isNotBlank() && lazyLinks.loadState.refresh !is LoadState.Loading) {
-                    Text(
-                        text = pluralStringResource(
-                            R.plurals.search_results,
-                            lazyLinks.itemCount,
-                            lazyLinks.itemCount,
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
-                }
-
-                AnimatedVisibility(visible = uiState.categories.isNotEmpty()) {
-                    CategoryTiles(
-                        categories = uiState.categories,
-                        selected = uiState.selectedCategory,
-                        onSelect = viewModel::selectCategory,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    )
-                }
-            }
-        }
-
+    Column(modifier = modifier) {
         // One bar covers both foreground work (save/import) and background
         // enrichment - the two used to be separate blocks, which stacked
         // into a double bar whenever a save overlapped a bulk-import sweep.
-        // Lives OUTSIDE the collapsing header so activity stays visible
-        // while scrolling. Animated in/out so the list doesn't jump.
+        // Pinned above the scrolling header so activity stays visible no
+        // matter where the list is. Animated in/out so the list doesn't jump.
         AnimatedVisibility(
             visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
             enter = expandVertically() + fadeIn(),
@@ -221,6 +118,13 @@ internal fun LinksTab(
         val listIsEmpty = lazyLinks.itemCount == 0 &&
             lazyLinks.loadState.refresh !is LoadState.Loading
         if (listIsEmpty) {
+            // No grid to host the header, but search and the category
+            // filter must stay reachable - that's the only way back from a
+            // filter that matches nothing. Supplies its own gutter, which
+            // the grid otherwise contributes via contentPadding.
+            header?.let {
+                Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
+            }
             EmptyState(
                 text = stringResource(
                     if (query.isNotBlank() || uiState.selectedCategory != null) {
@@ -240,9 +144,116 @@ internal fun LinksTab(
                 uiState = uiState,
                 viewModel = viewModel,
                 onOpenDetail = onOpenDetail,
+                header = header,
                 modifier = Modifier
                     .fillMaxSize()
                     .weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * Header content. Carries NO horizontal gutter of its own - inside the grid
+ * that comes from contentPadding, and the empty-state branch adds it. Two
+ * gutters would double-indent the search field.
+ */
+@Composable
+private fun LinksHeader(
+    viewModel: LinkViewModel,
+    uiState: LinkUiState,
+    query: String,
+    lazyLinks: LazyPagingItems<LinkEntity>,
+    hasProviders: Boolean,
+    providerBannerDismissed: Boolean,
+    onDismissProviderBanner: () -> Unit,
+    onShowSortSheet: () -> Unit,
+    onShowAiProviders: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        // Title row replaces the old pinned TopAppBar so it scrolls away
+        // with the rest of the header.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onShowSortSheet) {
+                Icon(
+                    SortIcon,
+                    contentDescription = stringResource(R.string.action_sort),
+                )
+            }
+            IconButton(
+                onClick = viewModel::refreshAll,
+                enabled = !uiState.isRefreshing,
+            ) {
+                if (uiState.isRefreshing) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(24.dp),
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = stringResource(R.string.action_refresh),
+                    )
+                }
+            }
+        }
+
+        // First-run guidance: links exist but AI categorization is off
+        // because no provider key was ever added.
+        if (!hasProviders && !providerBannerDismissed && lazyLinks.itemCount > 0) {
+            AddProviderBanner(
+                onAdd = onShowAiProviders,
+                onDismiss = onDismissProviderBanner,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+
+        SearchBar(
+            query = query,
+            onQueryChange = viewModel::search,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+        )
+
+        // A failed query must not read as "0 results" - that's how a broken
+        // search query hid in plain sight.
+        if (lazyLinks.loadState.refresh is LoadState.Error) {
+            Text(
+                text = stringResource(R.string.msg_load_failed),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        } else if (query.isNotBlank() && lazyLinks.loadState.refresh !is LoadState.Loading) {
+            Text(
+                text = pluralStringResource(
+                    R.plurals.search_results,
+                    lazyLinks.itemCount,
+                    lazyLinks.itemCount,
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+
+        if (uiState.categories.isNotEmpty()) {
+            CategoryTiles(
+                categories = uiState.categories,
+                selected = uiState.selectedCategory,
+                onSelect = viewModel::selectCategory,
+                modifier = Modifier.padding(bottom = 4.dp),
             )
         }
     }
