@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -81,6 +82,7 @@ internal fun FastScroller(
     var trackHeightPx by remember { mutableIntStateOf(0) }
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
+    var scrollJob: Job? by remember { mutableStateOf(null) }
 
     // Where the list actually is, as a 0..1 fraction of scrollable indexes.
     // [indexOffset] discounts non-link items the grid puts ahead of the data
@@ -171,7 +173,12 @@ internal fun FastScroller(
                                 dragFraction =
                                     (dragFraction + delta / travelPx).coerceIn(0f, 1f)
                                 val target = fastScrollTargetIndex(dragFraction, itemCount)
-                                scope.launch { gridState.scrollToItem(target + indexOffset) }
+                                // Cancel any scroll still catching up from a prior pointer
+                                // move - without this, scrollToItem calls queue up (the grid
+                                // serializes them) and the list lags behind the finger,
+                                // "catching up" in jerks once the drag pauses.
+                                scrollJob?.cancel()
+                                scrollJob = scope.launch { gridState.scrollToItem(target + indexOffset) }
                             },
                         )
                     },
