@@ -16,6 +16,7 @@ import dev.punit.tidylink.data.local.LinkDao
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.LinkQueryBuilder
 import dev.punit.tidylink.data.local.SortOrder
+import dev.punit.tidylink.data.local.TagCount
 import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.scraper.ScrapedData
 import dev.punit.tidylink.data.work.ClassificationRetryWorker
@@ -26,6 +27,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -86,10 +88,38 @@ class LinkRepository(
         searchQuery: String,
         category: String?,
         sort: SortOrder,
+        tag: String? = null,
     ): PagingSource<Int, LinkEntity> =
-        linkDao.pagingSource(LinkQueryBuilder.build(searchQuery, category, sort))
+        linkDao.pagingSource(LinkQueryBuilder.build(searchQuery, category, sort, tag))
 
     fun getCategories(): Flow<List<CategoryCount>> = linkDao.getCategories()
+
+    /**
+     * Tags across the library, busiest first, for the tag filter row.
+     *
+     * ponytail: counted in Kotlin over every row's tag array, so this is
+     * O(n) on each library change. Fine at the scale this app runs at and
+     * it costs no migration. Upgrade path if a library ever gets big
+     * enough to feel it: a normalized `tags` table with a GROUP BY.
+     */
+    fun getTagCounts(): Flow<List<TagCount>> = linkDao.observeTags().map { rows ->
+        rows.flatMap { it.tags }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            // Tags arrive from both the scraper and the LLM, so the same
+            // tag shows up in mixed case. Fold those together and label the
+            // chip with the most common spelling. SQLite's LIKE is
+            // ASCII-case-insensitive, so one chip correctly matches every
+            // spelling it was folded from.
+            .groupBy { it.lowercase() }
+            .map { (_, spellings) ->
+                TagCount(
+                    tag = spellings.groupingBy { it }.eachCount().maxByOrNull { it.value }!!.key,
+                    count = spellings.size,
+                )
+            }
+            .sortedWith(compareByDescending<TagCount> { it.count }.thenBy { it.tag.lowercase() })
+    }
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     fun pinnedPagingSource(): PagingSource<Int, LinkEntity> = linkDao.pinnedPagingSource()

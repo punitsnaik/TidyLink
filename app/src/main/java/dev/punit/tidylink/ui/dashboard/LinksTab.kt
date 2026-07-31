@@ -127,7 +127,10 @@ internal fun LinksTab(
             }
             EmptyState(
                 text = stringResource(
-                    if (query.isNotBlank() || uiState.selectedCategory != null) {
+                    if (query.isNotBlank() ||
+                        uiState.selectedCategory != null ||
+                        uiState.selectedTag != null
+                    ) {
                         R.string.empty_filtered
                     } else {
                         R.string.empty_no_links
@@ -256,6 +259,17 @@ private fun LinksHeader(
                 categories = uiState.categories,
                 selected = uiState.selectedCategory,
                 onSelect = viewModel::selectCategory,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+
+        // Hidden entirely until something in the library actually carries a
+        // tag, so a fresh install doesn't show an empty row.
+        if (uiState.tags.isNotEmpty()) {
+            TagRow(
+                tags = uiState.tags,
+                selected = uiState.selectedTag,
+                onSelect = viewModel::selectTag,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }

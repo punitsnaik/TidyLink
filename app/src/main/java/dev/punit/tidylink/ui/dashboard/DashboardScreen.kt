@@ -471,6 +471,16 @@ fun DashboardScreen(
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
+                // Dismiss so the filtered library is actually visible -
+                // leaving the sheet up would hide the result of the tap.
+                // The sheet is reachable from Pinned too, and the tag
+                // filter only drives the Links grid, so switch tabs or the
+                // tap looks like it did nothing.
+                onSelectTag = { tag ->
+                    selectedLinkId = null
+                    viewModel.selectTag(tag)
+                    currentTab = DashboardTab.Links
+                },
             )
         }
     }
