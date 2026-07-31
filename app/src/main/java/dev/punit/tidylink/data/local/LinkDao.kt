@@ -4,12 +4,23 @@ import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.RawQuery
+import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 /** A category name together with how many links use it. */
 data class CategoryCount(val category: String, val count: Int)
+
+/**
+ * One row's tag list. Exists only so Room applies the [Converters] JSON
+ * conversion per row - a bare `Flow<List<String>>` return type for a
+ * multi-row single-column query is ambiguous against that same converter.
+ */
+data class TagsRow(val tags: List<String>)
+
+/** A tag together with how many links carry it. */
+data class TagCount(val tag: String, val count: Int)
 
 @Dao
 interface LinkDao {
@@ -50,6 +61,16 @@ interface LinkDao {
     )
     suspend fun getCategoriesOnce(): List<CategoryCount>
 
+    /**
+     * Every non-empty tag array in the library. Counted in Kotlin by the
+     * repository rather than in SQL: `tags` is a JSON array in one column,
+     * so grouping it needs either the JSON1 extension (not dependable on
+     * API 29) or a normalized tags table (a migration this feature does
+     * not otherwise need).
+     */
+    @Query("SELECT tags FROM links WHERE tags != '[]' AND tags != ''")
+    fun observeTags(): Flow<List<TagsRow>>
+
     @Query("UPDATE links SET category = :newCategory WHERE category = :oldCategory")
     suspend fun renameCategory(oldCategory: String, newCategory: String)
 
@@ -75,6 +96,25 @@ interface LinkDao {
 
 
     /** Legacy rows saved before the dedupeKey column existed. */
+    /**
+     * How many rows are redundant copies - i.e. how many would disappear if
+     * duplicates were merged. Rows saved before the column existed have a
+     * blank key and are excluded; `backfillDedupeKeys` fills those at app
+     * start, and the merge itself recomputes keys anyway, so it can only
+     * ever remove at least this many, never fewer.
+     */
+    @Query("SELECT COUNT(*) - COUNT(DISTINCT dedupeKey) FROM links WHERE dedupeKey != ''")
+    fun countDuplicates(): Flow<Int>
+
+    /**
+     * Every dedupe key in the library, for bulk imports. One query beats N
+     * `getByDedupeKey` round trips when checking a few hundred bookmarks.
+     * (This existed once for the old .txt import and went away with it; a
+     * bulk import path makes it worth having again.)
+     */
+    @Query("SELECT dedupeKey FROM links WHERE dedupeKey != ''")
+    suspend fun getAllDedupeKeys(): List<String>
+
     @Query("SELECT * FROM links WHERE dedupeKey = ''")
     suspend fun getMissingDedupeKeys(): List<LinkEntity>
 
@@ -116,6 +156,12 @@ interface LinkDao {
     @Query("UPDATE links SET pinned = :pinned WHERE id = :id")
     suspend fun setPinned(id: String, pinned: Boolean)
 
+    @Query("UPDATE links SET isRead = :isRead WHERE id = :id")
+    suspend fun setRead(id: String, isRead: Boolean)
+
+    @Query("UPDATE links SET isRead = 1 WHERE id IN (:ids)")
+    suspend fun markRead(ids: List<String>)
+
     /** Paged view of pinned links only - drives the Pinned tab. */
     @Query("SELECT * FROM links WHERE pinned = 1 ORDER BY timestamp DESC")
     fun pinnedPagingSource(): PagingSource<Int, LinkEntity>
@@ -128,6 +174,47 @@ interface LinkDao {
 
     @Query("DELETE FROM links WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
+
+    // --- Trash -------------------------------------------------------------
+
+    @Upsert
+    suspend fun insertTrashed(rows: List<TrashedLinkEntity>)
+
+    /**
+     * Moves rows into the trash as one unit. Without the transaction a kill
+     * between the two statements either loses the links entirely (deleted,
+     * never trashed) or duplicates them (trashed, never deleted).
+     */
+    @Transaction
+    suspend fun moveToTrash(rows: List<TrashedLinkEntity>, ids: List<String>) {
+        insertTrashed(rows)
+        deleteByIds(ids)
+    }
+
+    /** Restoring is the same two steps in the other order, same reasoning. */
+    @Transaction
+    suspend fun restoreFromTrash(links: List<LinkEntity>, ids: List<String>) {
+        upsertAll(links)
+        deleteTrashed(ids)
+    }
+
+    @Query("SELECT * FROM trashed_links ORDER BY deletedAt DESC")
+    fun observeTrash(): Flow<List<TrashedLinkEntity>>
+
+    @Query("SELECT * FROM trashed_links WHERE id IN (:ids)")
+    suspend fun getTrashedByIds(ids: List<String>): List<TrashedLinkEntity>
+
+    @Query("SELECT COUNT(*) FROM trashed_links")
+    fun countTrashed(): Flow<Int>
+
+    @Query("DELETE FROM trashed_links WHERE id IN (:ids)")
+    suspend fun deleteTrashed(ids: List<String>)
+
+    @Query("DELETE FROM trashed_links")
+    suspend fun emptyTrash()
+
+    @Query("DELETE FROM trashed_links WHERE deletedAt < :cutoff")
+    suspend fun purgeTrashOlderThan(cutoff: Long)
 }
 
 /** Runs of letters/digits/underscore - everything else is a separator. */

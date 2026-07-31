@@ -1,5 +1,6 @@
 package dev.punit.tidylink.ui
 
+import android.content.Context
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -18,7 +19,12 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
+import dev.punit.tidylink.data.local.TagCount
+import dev.punit.tidylink.data.repository.BookmarkImportSummary
 import dev.punit.tidylink.data.repository.LinkRepository
+import dev.punit.tidylink.data.repository.TrashedLink
+import dev.punit.tidylink.data.settings.BackupState
+import dev.punit.tidylink.data.settings.BackupStore
 import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
@@ -27,6 +33,7 @@ import dev.punit.tidylink.data.settings.ThemeMode
 import dev.punit.tidylink.data.settings.ThemeStore
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
+import dev.punit.tidylink.data.work.BackupWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -80,18 +87,28 @@ sealed interface UpdateState {
 
 data class LinkUiState(
     val categories: List<CategoryCount> = emptyList(),
+    /** Tags across the library, busiest first - drives the tag filter row. */
+    val tags: List<TagCount> = emptyList(),
     val searchQuery: String = "",
     val selectedCategory: String? = null,
+    val selectedTag: String? = null,
     val sortOrder: SortOrder = SortOrder.NEWEST,
     val isProcessing: Boolean = false,
     val isRefreshing: Boolean = false,
     val message: UiMessage? = null,
-    val pendingUndo: List<LinkEntity> = emptyList(),
+    /** Ids of just-trashed links, for the undo snackbar. */
+    val pendingUndo: List<String> = emptyList(),
     val selectedIds: Set<String> = emptySet(),
     /** Links currently being refreshed individually (card / detail sheet). */
     val refreshingIds: Set<String> = emptySet(),
     /** Links still awaiting their first scrape (background enrichment). */
     val pendingEnrichment: Int = 0,
+    /** Redundant copies waiting to be merged - shown in the Tools sheet. */
+    val duplicateCount: Int = 0,
+    /** Whether the grid is filtered to links that haven't been opened. */
+    val unreadOnly: Boolean = false,
+    /** Links in the trash - shown on the Tools sheet row. */
+    val trashCount: Int = 0,
 ) {
     val isSelectionMode: Boolean get() = selectedIds.isNotEmpty()
 }
@@ -102,38 +119,57 @@ class LinkViewModel(
     private val providerStore: LlmProviderStore,
     private val onboardingStore: OnboardingStore,
     private val themeStore: ThemeStore,
+    private val backupStore: BackupStore,
+    /** Only for scheduling WorkManager jobs - no UI or activity context here. */
+    private val appContext: Context,
     private val aiService: AiCategorizationService,
     private val updateChecker: UpdateChecker,
 ) : ViewModel() {
 
     private val searchQuery = MutableStateFlow("")
     private val selectedCategory = MutableStateFlow<String?>(null)
+    private val selectedTag = MutableStateFlow<String?>(null)
+    private val unreadOnly = MutableStateFlow(false)
     private val sortOrder = MutableStateFlow(SortOrder.NEWEST)
     private val isProcessing = MutableStateFlow(false)
     private val isRefreshing = MutableStateFlow(false)
     private val message = MutableStateFlow<UiMessage?>(null)
-    private val pendingUndo = MutableStateFlow<List<LinkEntity>>(emptyList())
+    private val pendingUndo = MutableStateFlow<List<String>>(emptyList())
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val refreshingIds = MutableStateFlow<Set<String>>(emptySet())
 
+    /** The inputs that decide which links the grid shows. */
+    private data class LibraryQuery(
+        val search: String,
+        val category: String?,
+        val tag: String?,
+        val sort: SortOrder,
+        val unreadOnly: Boolean,
+    )
+
     /**
-     * Paged library: search (debounced), category filter, and sort all run
-     * in SQLite; Compose only ever holds the visible pages in memory, so a
-     * 10k-link library scrolls the same as a 100-link one.
+     * Paged library: search (debounced), category filter, tag filter,
+     * unread filter and sort all run in SQLite; Compose only ever holds the
+     * visible pages in memory, so a 10k-link library scrolls the same as a
+     * 100-link one.
      */
     val links: Flow<PagingData<LinkEntity>> = combine(
         searchQuery.debounce(250),
         selectedCategory,
+        selectedTag,
         sortOrder,
-        ::Triple,
-    ).flatMapLatest { (query, category, sort) ->
+        unreadOnly,
+        ::LibraryQuery,
+    ).flatMapLatest { q ->
         Pager(
             config = PagingConfig(
                 pageSize = 60,
                 prefetchDistance = 90,
                 enablePlaceholders = false,
             ),
-            pagingSourceFactory = { repository.pagingSource(query, category, sort) },
+            pagingSourceFactory = {
+                repository.pagingSource(q.search, q.category, q.sort, q.tag, q.unreadOnly)
+            },
         ).flow
     }.cachedIn(viewModelScope)
 
@@ -151,11 +187,15 @@ class LinkViewModel(
         val isProcessing: Boolean,
         val isRefreshing: Boolean,
         val message: UiMessage?,
-        val pendingUndo: List<LinkEntity>,
+        val pendingUndo: List<String>,
         val selectedIds: Set<String>,
         val refreshingIds: Set<String> = emptySet(),
         val sortOrder: SortOrder = SortOrder.NEWEST,
         val pendingEnrichment: Int = 0,
+        val tags: List<TagCount> = emptyList(),
+        val duplicateCount: Int = 0,
+        val unreadOnly: Boolean = false,
+        val trashCount: Int = 0,
     )
 
     /** Bundle secondary state so each combine stays within 5 flows. */
@@ -168,17 +208,28 @@ class LinkViewModel(
         .combine(repository.pendingEnrichmentCount()) { transient, pending ->
             transient.copy(pendingEnrichment = pending)
         }
+        .combine(repository.getTagCounts()) { transient, tags -> transient.copy(tags = tags) }
+        .combine(repository.duplicateCount()) { transient, dupes ->
+            transient.copy(duplicateCount = dupes)
+        }
+        .combine(unreadOnly) { transient, unread -> transient.copy(unreadOnly = unread) }
+        .combine(repository.trashCount()) { transient, trashed ->
+            transient.copy(trashCount = trashed)
+        }
 
     val uiState: StateFlow<LinkUiState> = combine(
         repository.getCategories(),
         searchQuery,
         selectedCategory,
+        selectedTag,
         transientState,
-    ) { categories, query, category, transient ->
+    ) { categories, query, category, tag, transient ->
         LinkUiState(
             categories = categories,
+            tags = transient.tags,
             searchQuery = query,
             selectedCategory = category,
+            selectedTag = tag,
             sortOrder = transient.sortOrder,
             isProcessing = transient.isProcessing,
             isRefreshing = transient.isRefreshing,
@@ -187,6 +238,9 @@ class LinkViewModel(
             selectedIds = transient.selectedIds,
             refreshingIds = transient.refreshingIds,
             pendingEnrichment = transient.pendingEnrichment,
+            duplicateCount = transient.duplicateCount,
+            unreadOnly = transient.unreadOnly,
+            trashCount = transient.trashCount,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -206,6 +260,67 @@ class LinkViewModel(
 
     fun selectCategory(category: String?) {
         selectedCategory.value = category
+    }
+
+    /** Pass null to clear. Composes with the category filter, doesn't replace it. */
+    fun selectTag(tag: String?) {
+        selectedTag.value = tag
+    }
+
+    fun setUnreadOnly(enabled: Boolean) {
+        unreadOnly.value = enabled
+    }
+
+    /**
+     * Called when the user actually opens a link. Read state that has to be
+     * maintained by hand doesn't get maintained, so this is the path that
+     * makes the unread filter mean anything.
+     */
+    fun markRead(link: LinkEntity) {
+        if (link.isRead) return
+        setReadState(link.id, true)
+    }
+
+    fun toggleRead(link: LinkEntity) {
+        setReadState(link.id, !link.isRead)
+    }
+
+    /**
+     * Not runCatching: that swallows CancellationException along with
+     * everything else, which is the pattern this codebase already had to
+     * fix once in the update-check paths.
+     */
+    private fun setReadState(id: String, isRead: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.setRead(id, isRead)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_read_state_failed)
+            }
+        }
+    }
+
+    /** Bulk "I'm done with these" for the current selection. */
+    fun markSelectedRead() {
+        val ids = selectedIds.value.toList()
+        if (ids.isEmpty()) return
+        selectedIds.value = emptySet()
+        viewModelScope.launch {
+            try {
+                repository.markRead(ids)
+                message.value = UiMessage.Plural(
+                    R.plurals.msg_marked_read,
+                    ids.size,
+                    listOf(ids.size),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_read_state_failed)
+            }
+        }
     }
 
     fun setSortOrder(order: SortOrder) {
@@ -234,11 +349,19 @@ class LinkViewModel(
     }
 
     /** Manual edit of a link's title / category / tags (comma-separated). */
-    fun editLink(link: LinkEntity, title: String, category: String, tagsText: String) {
+    fun editLink(
+        link: LinkEntity,
+        title: String,
+        category: String,
+        tagsText: String,
+        note: String,
+    ) {
         viewModelScope.launch {
             try {
                 val tags = tagsText.split(',').map { it.trim() }.filter { it.isNotBlank() }
-                repository.updateLinkDetails(link, title, category, tags)
+                repository.updateLinkDetails(link, title, category, tags, note)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message.value = UiMessage.Text(R.string.msg_edit_failed)
             }
@@ -344,27 +467,32 @@ class LinkViewModel(
     fun deleteLink(link: LinkEntity) {
         viewModelScope.launch {
             repository.deleteLink(link.id)
-            pendingUndo.value = listOf(link)
+            pendingUndo.value = listOf(link.id)
         }
     }
 
-    /** Bulk-deletes everything currently selected, keeping copies for undo. */
+    /** Bulk-deletes everything currently selected; all of it stays undoable. */
     fun deleteSelected() {
         val ids = selectedIds.value.toList()
         if (ids.isEmpty()) return
         selectedIds.value = emptySet()
         viewModelScope.launch {
-            val toDelete = repository.getLinksByIds(ids)
             repository.deleteLinks(ids)
-            pendingUndo.value = toDelete
+            pendingUndo.value = ids
         }
     }
 
+    /**
+     * Undo now goes through the same restore path as the trash sheet.
+     * Holding ids rather than entities is what makes that possible - and
+     * the entities no longer need holding, because the rows still exist in
+     * `trashed_links` whether or not the snackbar is still up.
+     */
     fun undoDelete() {
-        val links = pendingUndo.value
-        if (links.isEmpty()) return
+        val ids = pendingUndo.value
+        if (ids.isEmpty()) return
         pendingUndo.value = emptyList()
-        viewModelScope.launch { repository.restoreLinks(links) }
+        viewModelScope.launch { repository.restoreFromTrash(ids) }
     }
 
     fun clearUndo() {
@@ -378,6 +506,11 @@ class LinkViewModel(
 
     /** Returns number of imported links, or -1 on invalid JSON. */
     suspend fun importLinks(stream: InputStream): Int = repository.importLinks(stream)
+
+    suspend fun importBookmarks(
+        stream: InputStream,
+        useFoldersAsCategories: Boolean,
+    ): BookmarkImportSummary = repository.importBookmarks(stream, useFoldersAsCategories)
 
     /**
      * Merges the sprawling category list into a small set of broad ones
@@ -406,6 +539,39 @@ class LinkViewModel(
                 }
             } catch (e: Exception) {
                 message.value = UiMessage.Text(R.string.msg_tidy_failed)
+            } finally {
+                isProcessing.value = false
+            }
+        }
+    }
+
+    /**
+     * Collapses duplicate copies of the same page into one row each.
+     *
+     * This already ran as the first step of [refreshAll]'s sweep, where it
+     * was invisible - nothing said it had happened, and it only ran at all
+     * when there were links left to scrape. Here it is its own action, with
+     * a count reported back.
+     */
+    fun mergeDuplicates() {
+        if (isProcessing.value) return
+        viewModelScope.launch {
+            isProcessing.value = true
+            try {
+                val removed = repository.mergeDuplicates()
+                message.value = if (removed > 0) {
+                    UiMessage.Plural(
+                        R.plurals.msg_duplicates_merged,
+                        removed,
+                        listOf(removed),
+                    )
+                } else {
+                    UiMessage.Text(R.string.msg_duplicates_none)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_duplicates_failed)
             } finally {
                 isProcessing.value = false
             }
@@ -559,6 +725,82 @@ class LinkViewModel(
         themeStore.setThemeMode(mode)
     }
 
+    // --- Trash ------------------------------------------------------------
+
+    /**
+     * Only collected while the trash sheet is open - kept out of [uiState]
+     * so the whole trash isn't decoded on every unrelated library change.
+     */
+    val trashedLinks: StateFlow<List<TrashedLink>> = repository.observeTrash()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Shared by the undo snackbar and the trash sheet - one path, no drift. */
+    fun restoreFromTrash(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val restored = repository.restoreFromTrash(ids)
+                if (restored > 0) {
+                    message.value = UiMessage.Plural(
+                        R.plurals.msg_restored,
+                        restored,
+                        listOf(restored),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_restore_failed)
+            }
+        }
+    }
+
+    fun deleteFromTrashForever(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.deleteFromTrashForever(ids)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_trash_delete_failed)
+            }
+        }
+    }
+
+    fun emptyTrash() {
+        viewModelScope.launch {
+            try {
+                repository.emptyTrash()
+                message.value = UiMessage.Text(R.string.msg_trash_emptied)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_trash_delete_failed)
+            }
+        }
+    }
+
+    // --- Scheduled backup ------------------------------------------------
+
+    val backupState: StateFlow<BackupState> = backupStore.state
+
+    /**
+     * Runs one backup immediately as well as scheduling the weekly one:
+     * finding out a week later that the folder choice didn't work would
+     * defeat the point of having a backup at all.
+     */
+    fun enableBackup(folderUri: String) {
+        backupStore.enable(folderUri)
+        BackupWorker.schedule(appContext)
+        BackupWorker.runNow(appContext)
+    }
+
+    fun disableBackup() {
+        backupStore.disable()
+        BackupWorker.cancel(appContext)
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -569,6 +811,8 @@ class LinkViewModel(
                     providerStore = app.container.llmProviderStore,
                     onboardingStore = app.container.onboardingStore,
                     themeStore = app.container.themeStore,
+                    backupStore = app.container.backupStore,
+                    appContext = app.applicationContext,
                     aiService = app.container.aiService,
                     updateChecker = app.container.updateChecker,
                 )

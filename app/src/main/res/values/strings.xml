@@ -28,6 +28,13 @@
     <string name="sheet_filter_by_category">Filter by category</string>
     <string name="chip_category_with_count">%1$s (%2$d)</string>
     <string name="tile_more">More</string>
+    <string name="sheet_filter_by_tag">Filter by tag</string>
+    <string name="chip_tag_with_count">#%1$s (%2$d)</string>
+    <string name="chip_unread">Unread</string>
+    <string name="action_mark_read">Mark as read</string>
+    <string name="action_mark_unread">Mark as unread</string>
+    <string name="action_mark_selected_read">Mark selected as read</string>
+    <string name="cd_read">Read</string>
 
     <!-- Progress / onboarding banners -->
     <plurals name="banner_fetching_details">
@@ -82,6 +89,15 @@
     <string name="settings_export_subtitle">Save a backup of all your links</string>
     <string name="settings_import_json_title">Import links (JSON)</string>
     <string name="settings_import_json_subtitle">Restore links from a backup file</string>
+    <string name="settings_auto_backup_title">Automatic backup</string>
+    <string name="settings_auto_backup_off">Off — your links only exist on this device</string>
+    <string name="settings_auto_backup_pending">On — first backup runs shortly</string>
+    <string name="settings_auto_backup_last">On — last backup %1$s</string>
+    <string name="settings_auto_backup_failed">Backup failed — the folder may have been moved or deleted. Tap to pick it again.</string>
+    <string name="msg_auto_backup_enabled">Backing up weekly to that folder</string>
+    <string name="msg_auto_backup_disabled">Automatic backup turned off</string>
+    <string name="settings_import_bookmarks_title">Import browser bookmarks</string>
+    <string name="settings_import_bookmarks_subtitle">Bring in an HTML export from Chrome, Firefox or Safari</string>
 
     <!-- Tools sheet: library maintenance, reached from the Links header. -->
     <string name="sheet_tools_title">Tools</string>
@@ -91,6 +107,36 @@
     <string name="tools_fetch_missing_busy">Fetching…</string>
     <string name="tools_tidy_title">Tidy up categories</string>
     <string name="tools_tidy_subtitle">Merge similar categories into a smaller set. This can\'t be undone.</string>
+    <string name="tools_duplicates_title">Merge duplicates</string>
+    <plurals name="tools_duplicates_subtitle">
+        <item quantity="one">%1$d duplicate copy found. Details are combined into one link.</item>
+        <item quantity="other">%1$d duplicate copies found. Details are combined into one link.</item>
+    </plurals>
+    <string name="tools_duplicates_none">No duplicates found</string>
+    <string name="dialog_duplicates_title">Merge duplicates?</string>
+    <plurals name="dialog_duplicates_body">
+        <item quantity="one">%1$d redundant copy will be combined into the link it duplicates. Images, summaries and pins are kept. This can\'t be undone.</item>
+        <item quantity="other">%1$d redundant copies will be combined into the links they duplicate. Images, summaries and pins are kept. This can\'t be undone.</item>
+    </plurals>
+    <string name="dialog_duplicates_confirm">Merge</string>
+    <string name="tools_trash_title">Trash</string>
+    <string name="tools_trash_empty">Nothing deleted recently</string>
+    <plurals name="tools_trash_subtitle">
+        <item quantity="one">%1$d deleted link, kept for 90 days</item>
+        <item quantity="other">%1$d deleted links, kept for 90 days</item>
+    </plurals>
+    <string name="sheet_trash_title">Trash</string>
+    <string name="sheet_trash_subtitle">Deleted links are kept for 90 days</string>
+    <string name="trash_empty">Nothing in the trash.</string>
+    <plurals name="trash_days_left">
+        <item quantity="one">%1$d day left</item>
+        <item quantity="other">%1$d days left</item>
+    </plurals>
+    <string name="action_restore">Restore</string>
+    <string name="action_delete_forever">Delete permanently</string>
+    <string name="action_empty_trash">Empty</string>
+    <string name="dialog_empty_trash_title">Empty the trash?</string>
+    <string name="dialog_empty_trash_body">Every link in the trash will be permanently deleted. This can\'t be undone.</string>
     <string name="settings_section_help">Help</string>
     <string name="settings_section_about">About</string>
     <string name="settings_show_intro_title">Show intro again</string>
@@ -128,6 +174,15 @@
     <string name="field_title">Title</string>
     <string name="field_category">Category</string>
     <string name="field_tags">Tags (comma-separated)</string>
+    <string name="dialog_import_bookmarks_title">Import browser bookmarks</string>
+    <string name="dialog_import_bookmarks_body">Export your bookmarks from Chrome, Firefox or Safari as an HTML file, then pick it on the next screen.</string>
+    <string name="dialog_import_bookmarks_use_folders">Use bookmark folders as categories</string>
+    <string name="dialog_import_bookmarks_folders_note">Keeps the folders you already made. Links outside a folder are categorized by AI.</string>
+    <string name="dialog_import_bookmarks_ai_note">Every imported link will be categorized by AI. On a large export that\'s a lot of requests against your own API key.</string>
+    <string name="dialog_import_bookmarks_choose">Choose file</string>
+    <string name="field_note">Your note</string>
+    <string name="field_note_hint">Why you saved this</string>
+    <string name="detail_note_heading">Your note</string>
     <string name="action_save">Save</string>
     <plurals name="dialog_move_title">
         <item quantity="one">Move %d link to…</item>
@@ -158,9 +213,16 @@
     <string name="msg_refreshed_no_provider">Refreshed %1$d links — %2$d not categorized: add an AI provider in Settings</string>
     <string name="msg_refresh_failed">Refresh failed</string>
     <plurals name="links_deleted">
-        <item quantity="one">Link deleted</item>
-        <item quantity="other">%d links deleted</item>
+        <item quantity="one">Moved to trash</item>
+        <item quantity="other">%d links moved to trash</item>
     </plurals>
+    <plurals name="msg_restored">
+        <item quantity="one">Link restored</item>
+        <item quantity="other">%d links restored</item>
+    </plurals>
+    <string name="msg_restore_failed">Couldn\'t restore</string>
+    <string name="msg_trash_emptied">Trash emptied</string>
+    <string name="msg_trash_delete_failed">Couldn\'t delete from trash</string>
     <string name="action_undo">Undo</string>
     <string name="msg_import_failed">Import failed</string>
     <string name="msg_import_invalid">Import failed: invalid file</string>
@@ -178,6 +240,24 @@
     <string name="msg_tidy_ai_unavailable">Couldn\'t tidy categories (AI rate limit) — try again later</string>
     <string name="msg_tidy_already">Categories already tidy</string>
     <string name="msg_tidy_failed">Couldn\'t tidy categories</string>
+    <plurals name="msg_duplicates_merged">
+        <item quantity="one">Merged %d duplicate link</item>
+        <item quantity="other">Merged %d duplicate links</item>
+    </plurals>
+    <string name="msg_duplicates_none">No duplicates to merge</string>
+    <string name="msg_duplicates_failed">Couldn\'t merge duplicates</string>
+    <plurals name="msg_marked_read">
+        <item quantity="one">Marked %d link as read</item>
+        <item quantity="other">Marked %d links as read</item>
+    </plurals>
+    <string name="msg_read_state_failed">Couldn\'t update read state</string>
+    <plurals name="msg_imported_bookmarks">
+        <item quantity="one">Imported %1$d bookmark</item>
+        <item quantity="other">Imported %1$d bookmarks</item>
+    </plurals>
+    <string name="msg_imported_bookmarks_with_skips">Imported %1$d bookmarks, skipped %2$d already saved</string>
+    <string name="msg_imported_bookmarks_none">No new bookmarks found in that file</string>
+    <string name="msg_import_too_large">That file is too large to import</string>
 
     <!-- Share receiver -->
     <string name="share_no_link_found">No link found in shared text</string>

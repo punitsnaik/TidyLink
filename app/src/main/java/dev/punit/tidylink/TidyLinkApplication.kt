@@ -5,6 +5,7 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.AppDatabase
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.scraper.LinkScraperService
+import dev.punit.tidylink.data.settings.BackupStore
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ThemeStore
@@ -29,6 +30,8 @@ class AppContainer(application: Application) {
     val onboardingStore by lazy { OnboardingStore(app.applicationContext) }
 
     val themeStore by lazy { ThemeStore(app.applicationContext) }
+
+    val backupStore by lazy { BackupStore(app.applicationContext) }
 
     val updateChecker by lazy { UpdateChecker(app.applicationContext) }
 
@@ -58,6 +61,10 @@ class TidyLinkApplication : Application() {
         applicationScope.launch {
             // One-time upgrade: index legacy rows for fast duplicate checks.
             runCatching { container.linkRepository.backfillDedupeKeys() }
+            // Drop trash past its 90 days. One DELETE at startup rather than
+            // a worker - trash purged a few hours late harms nobody, and a
+            // periodic job would be more machinery than this deserves.
+            runCatching { container.linkRepository.purgeExpiredTrash() }
             // Resume any interrupted enrichment (app killed mid-import, or
             // rows upgraded from a schema without scrape bookkeeping).
             runCatching {

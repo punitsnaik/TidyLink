@@ -20,4 +20,11 @@ data class LinkFtsEntity(
     val category: String,
     val tags: List<String>,
     val aiSummary: String,
+    /**
+     * Appended last on purpose: an FTS4 table can't be ALTERed to add a
+     * column, so MIGRATION_4_5 drops and recreates this table, and the
+     * recreated column order has to match this declaration exactly or
+     * Room's schema validation fails.
+     */
+    val note: String,
 )

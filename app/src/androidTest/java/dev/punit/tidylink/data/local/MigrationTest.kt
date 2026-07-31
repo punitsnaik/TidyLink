@@ -35,9 +35,16 @@ import org.junit.runner.RunWith
  * the androidTest build. Unit tests under src/test are JVM-only, never dexed,
  * and keep their backticks.
  *
- * The v4 target schema is validated by Room itself: runMigrationsAndValidate
- * compares the migrated database against the generated 4.json and throws if
- * anything differs.
+ * The target schema is validated by Room itself: runMigrationsAndValidate
+ * compares the migrated database against the generated 4.json / 5.json and
+ * throws if anything differs.
+ *
+ * MIGRATION_4_5 recreates the FTS table (an FTS4 table can't be ALTERed to
+ * add the new `note` column). If a v5 test fails complaining about missing
+ * FTS sync triggers rather than about content, suspect the harness rather
+ * than the migration: Room drops those triggers in onPreMigrate and
+ * recreates them in onPostMigrate, and the migration deliberately doesn't
+ * manage them itself.
  */
 @RunWith(AndroidJUnit4::class)
 class MigrationTest {
@@ -126,6 +133,111 @@ class MigrationTest {
         assertEquals(listOf("Kotlin Compose Guide"), hits)
     }
 
+    @Test
+    fun migrate_4_to_5_defaults_the_new_columns_and_keeps_rows() {
+        createV4Database()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 5, true, *ALL_MIGRATIONS)
+
+        val row = db.query("SELECT id, isRead, note, pinned FROM links").use {
+            it.moveToFirst()
+            listOf(it.getString(0), it.getInt(1), it.getString(2), it.getInt(3))
+        }
+        assertEquals("existing row survives", "kot", row[0])
+        assertEquals("isRead defaults to unread", 0, row[1])
+        assertEquals("note defaults to empty", "", row[2])
+        assertEquals("pinned is untouched by the FTS recreate", 1, row[3])
+    }
+
+    /**
+     * The regression this migration exists to avoid.
+     *
+     * An FTS4 table can't gain a column by ALTER, so MIGRATION_4_5 drops and
+     * recreates links_fts. A recreated external-content table starts EMPTY -
+     * so without the `rebuild` command every link saved before the upgrade
+     * would silently disappear from search while still sitting in the list.
+     * Delete the rebuild line and this test fails; nothing else would.
+     */
+    @Test
+    fun migrate_4_to_5_rebuilds_the_fts_index_so_existing_links_stay_searchable() {
+        createV4Database()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 5, true, *ALL_MIGRATIONS)
+
+        val hits = db.query(
+            "SELECT links.title FROM links JOIN links_fts ON links.rowid = links_fts.rowid " +
+                "WHERE links_fts MATCH 'kotl*'"
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+        assertEquals(listOf("Kotlin Compose Guide"), hits)
+    }
+
+    /**
+     * The note column has to be in the index too, not just on the row - a
+     * note is the user's own words and the highest-signal thing to search
+     * for. This goes through a real Room instance so the FTS sync triggers
+     * Room recreates in onPostMigrate are the ones under test.
+     */
+    @Test
+    fun notes_written_after_migrating_are_searchable() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 5, true, *ALL_MIGRATIONS).close()
+
+        val db = androidx.room.Room.databaseBuilder(
+            ApplicationProvider.getApplicationContext<android.content.Context>(),
+            AppDatabase::class.java,
+            TEST_DB,
+        ).addMigrations(*ALL_MIGRATIONS).build()
+        helper.closeWhenFinished(db)
+
+        db.openHelper.writableDatabase.execSQL(
+            "UPDATE links SET note = 'reread before the offsite' WHERE id = 'kot'"
+        )
+
+        val query = LinkQueryBuilder.build("offsite", category = null, sort = SortOrder.NEWEST)
+        val hits = db.openHelper.readableDatabase.query(query).use { c ->
+            buildList { while (c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("id"))) }
+        }
+        assertEquals("a word only in the note must find the link", listOf("kot"), hits)
+    }
+
+    /**
+     * v6 adds the trash table and touches nothing else - that's the payoff
+     * of trash being a separate table rather than a `deletedAt` column on
+     * `links`. If a future change to this migration starts modifying
+     * `links`, the FTS assertion here is what should catch it.
+     */
+    @Test
+    fun migrate_5_to_6_adds_the_trash_table_and_leaves_links_alone() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 5, true, *ALL_MIGRATIONS).close()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS)
+
+        assertEquals(
+            listOf("deletedAt", "id", "json"),
+            db.columnsOf("trashed_links").sorted(),
+        )
+        assertEquals("the existing link is untouched", listOf("kot"), db.query("SELECT id FROM links").ids())
+        // Nothing recreated links_fts, so the index still resolves.
+        val hits = db.query(
+            "SELECT links.title FROM links JOIN links_fts ON links.rowid = links_fts.rowid " +
+                "WHERE links_fts MATCH 'kotl*'"
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+        assertEquals(listOf("Kotlin Compose Guide"), hits)
+    }
+
+    /** A fresh v4 install must reach v6 in one go, not just v4 -> v5. */
+    @Test
+    fun migrate_4_to_6_runs_both_new_migrations_in_sequence() {
+        createV4Database()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS)
+
+        assertTrue("isRead should exist at v6", "isRead" in db.columnsOf("links"))
+        assertTrue("note should exist at v6", "note" in db.columnsOf("links"))
+        assertTrue("trash table should exist at v6", db.columnsOf("trashed_links").isNotEmpty())
+    }
+
     /** Search must still work through a live Room instance after migrating. */
     @Test
     fun database_opens_and_searches_after_migrating_from_v1() {
@@ -144,6 +256,26 @@ class MigrationTest {
             buildList { while (c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("title"))) }
         }
         assertEquals(listOf("Kotlin Compose Guide"), hits)
+    }
+
+    /**
+     * A v4 database with one searchable row. Built through
+     * MigrationTestHelper (unlike [createV1Database]) because 4.json exists,
+     * so Room can create the schema itself.
+     */
+    private fun createV4Database() {
+        helper.createDatabase(TEST_DB, 4).use { db ->
+            db.execSQL(
+                """
+                INSERT INTO links
+                (id, url, title, description, imageUrl, category, tags, aiSummary,
+                 timestamp, dedupeKey, pinned, scrapeAttempts)
+                VALUES
+                ('kot','https://kotlinlang.org','Kotlin Compose Guide','Building UI',
+                 'http://img','Dev','["kotlin"]','A guide',100,'kotlinlang.org',1,1)
+                """.trimIndent()
+            )
+        }
     }
 
     private fun createV1Database() {

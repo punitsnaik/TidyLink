@@ -74,6 +74,13 @@ import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
 import kotlinx.coroutines.delay
 
+/**
+ * How far a read link recedes. Low enough to read as "handled" at a
+ * glance, high enough that the title stays legible - these links are still
+ * in the library and still searchable, they just aren't the queue any more.
+ */
+private const val READ_ALPHA = 0.55f
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun LinkCard(
@@ -154,6 +161,7 @@ internal fun LinkCard(
     val refreshActionLabel = stringResource(R.string.action_refresh_link)
     val deleteActionLabel = stringResource(R.string.action_delete_link)
     val selectedStateLabel = stringResource(R.string.cd_selected)
+    val readStateLabel = stringResource(R.string.cd_read)
 
     SwipeToDismissBox(
         state = dismissState,
@@ -199,7 +207,10 @@ internal fun LinkCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
-                    alpha = entrance.value
+                    // Read links recede rather than disappear - folded into
+                    // the existing entrance alpha instead of a second
+                    // modifier, so there's still one layer per card.
+                    alpha = entrance.value * if (link.isRead) READ_ALPHA else 1f
                     translationY = (1f - entrance.value) * 24.dp.toPx()
                     scaleX = pressScale
                     scaleY = pressScale
@@ -211,7 +222,12 @@ internal fun LinkCard(
                     onLongClick = onLongClick,
                 )
                 .semantics {
-                    if (selected) stateDescription = selectedStateLabel
+                    // Dimming conveys "read" visually; TalkBack needs it said.
+                    if (selected) {
+                        stateDescription = selectedStateLabel
+                    } else if (link.isRead) {
+                        stateDescription = readStateLabel
+                    }
                     customActions = listOf(
                         CustomAccessibilityAction(refreshActionLabel) { onRefresh(); true },
                         CustomAccessibilityAction(deleteActionLabel) { onDelete(); true },

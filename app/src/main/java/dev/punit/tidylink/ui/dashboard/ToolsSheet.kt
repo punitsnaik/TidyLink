@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,11 +23,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,8 +53,12 @@ import dev.punit.tidylink.R
 @Composable
 internal fun ToolsSheet(
     isRefreshing: Boolean,
+    duplicateCount: Int,
+    trashCount: Int,
     onFetchMissingDetails: () -> Unit,
     onTidyCategories: () -> Unit,
+    onMergeDuplicates: () -> Unit,
+    onOpenTrash: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -84,6 +91,35 @@ internal fun ToolsSheet(
                 title = stringResource(R.string.tools_tidy_title),
                 subtitle = stringResource(R.string.tools_tidy_subtitle),
                 onClick = onTidyCategories,
+            )
+            // Always listed, even at zero: the row's job is to answer
+            // "do I have duplicates?", and a row that only appears when the
+            // answer is yes can't be checked.
+            ToolRow(
+                icon = CopyIcon,
+                title = stringResource(R.string.tools_duplicates_title),
+                subtitle = if (duplicateCount == 0) {
+                    stringResource(R.string.tools_duplicates_none)
+                } else {
+                    pluralStringResource(
+                        R.plurals.tools_duplicates_subtitle,
+                        duplicateCount,
+                        duplicateCount,
+                    )
+                },
+                onClick = onMergeDuplicates,
+                enabled = duplicateCount > 0,
+            )
+            ToolRow(
+                icon = Icons.Default.Delete,
+                title = stringResource(R.string.tools_trash_title),
+                subtitle = if (trashCount == 0) {
+                    stringResource(R.string.tools_trash_empty)
+                } else {
+                    pluralStringResource(R.plurals.tools_trash_subtitle, trashCount, trashCount)
+                },
+                onClick = onOpenTrash,
+                enabled = trashCount > 0,
             )
         }
     }
@@ -169,13 +205,17 @@ private fun ToolRow(
     enabled: Boolean = true,
     busy: Boolean = false,
 ) {
+    // A row that can't be tapped has to look like it - otherwise "no
+    // duplicates found" reads as a button that silently does nothing.
+    val contentAlpha = if (enabled || busy) 1f else 0.38f
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 12.dp),
+            .padding(horizontal = 4.dp, vertical = 12.dp)
+            .alpha(contentAlpha),
     ) {
         if (busy) {
             CircularProgressIndicator(
