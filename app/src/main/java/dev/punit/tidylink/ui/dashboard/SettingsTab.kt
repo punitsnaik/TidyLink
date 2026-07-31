@@ -56,6 +56,7 @@ internal fun SettingsTab(
     onAiProviders: () -> Unit,
     onExport: () -> Unit,
     onImportJson: () -> Unit,
+    onImportBookmarks: () -> Unit,
     onShowIntro: () -> Unit,
     onOpenRepo: () -> Unit,
     updateState: UpdateState,
@@ -109,6 +110,12 @@ internal fun SettingsTab(
                 title = stringResource(R.string.settings_import_json_title),
                 subtitle = stringResource(R.string.settings_import_json_subtitle),
                 onClick = onImportJson,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_import_bookmarks_title),
+                subtitle = stringResource(R.string.settings_import_bookmarks_subtitle),
+                onClick = onImportBookmarks,
             )
         }
 
