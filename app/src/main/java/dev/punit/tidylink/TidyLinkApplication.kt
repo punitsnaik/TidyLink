@@ -61,6 +61,10 @@ class TidyLinkApplication : Application() {
         applicationScope.launch {
             // One-time upgrade: index legacy rows for fast duplicate checks.
             runCatching { container.linkRepository.backfillDedupeKeys() }
+            // Drop trash past its 90 days. One DELETE at startup rather than
+            // a worker - trash purged a few hours late harms nobody, and a
+            // periodic job would be more machinery than this deserves.
+            runCatching { container.linkRepository.purgeExpiredTrash() }
             // Resume any interrupted enrichment (app killed mid-import, or
             // rows upgraded from a schema without scrape bookkeeping).
             runCatching {

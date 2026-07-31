@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,9 +54,11 @@ import dev.punit.tidylink.R
 internal fun ToolsSheet(
     isRefreshing: Boolean,
     duplicateCount: Int,
+    trashCount: Int,
     onFetchMissingDetails: () -> Unit,
     onTidyCategories: () -> Unit,
     onMergeDuplicates: () -> Unit,
+    onOpenTrash: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -106,6 +109,17 @@ internal fun ToolsSheet(
                 },
                 onClick = onMergeDuplicates,
                 enabled = duplicateCount > 0,
+            )
+            ToolRow(
+                icon = Icons.Default.Delete,
+                title = stringResource(R.string.tools_trash_title),
+                subtitle = if (trashCount == 0) {
+                    stringResource(R.string.tools_trash_empty)
+                } else {
+                    pluralStringResource(R.plurals.tools_trash_subtitle, trashCount, trashCount)
+                },
+                onClick = onOpenTrash,
+                enabled = trashCount > 0,
             )
         }
     }

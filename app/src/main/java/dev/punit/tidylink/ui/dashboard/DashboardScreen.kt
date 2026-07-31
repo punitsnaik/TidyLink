@@ -86,6 +86,8 @@ fun DashboardScreen(
     var showTidyConfirm by rememberSaveable { mutableStateOf(false) }
     var showDuplicatesConfirm by rememberSaveable { mutableStateOf(false) }
     var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
+    var showTrashSheet by rememberSaveable { mutableStateOf(false) }
+    var showEmptyTrashConfirm by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
@@ -465,6 +467,43 @@ fun DashboardScreen(
         )
     }
 
+    if (showTrashSheet) {
+        val trashed by viewModel.trashedLinks.collectAsStateWithLifecycle()
+        TrashSheet(
+            trashed = trashed,
+            onRestore = viewModel::restoreFromTrash,
+            onDeleteForever = viewModel::deleteFromTrashForever,
+            onEmptyTrash = {
+                showTrashSheet = false
+                showEmptyTrashConfirm = true
+            },
+            onDismiss = { showTrashSheet = false },
+        )
+    }
+
+    // Emptying the trash is the one genuinely irreversible action in the
+    // app - everything else this sheet offers can be undone.
+    if (showEmptyTrashConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEmptyTrashConfirm = false },
+            title = { Text(stringResource(R.string.dialog_empty_trash_title)) },
+            text = { Text(stringResource(R.string.dialog_empty_trash_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEmptyTrashConfirm = false
+                        viewModel.emptyTrash()
+                    },
+                ) { Text(stringResource(R.string.action_empty_trash)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmptyTrashConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     if (showBookmarkImport) {
         BookmarkImportDialog(
             onConfirm = { useFolders ->
@@ -529,9 +568,14 @@ fun DashboardScreen(
         ToolsSheet(
             isRefreshing = uiState.isRefreshing,
             duplicateCount = uiState.duplicateCount,
+            trashCount = uiState.trashCount,
             onFetchMissingDetails = {
                 showToolsSheet = false
                 viewModel.refreshAll()
+            },
+            onOpenTrash = {
+                showToolsSheet = false
+                showTrashSheet = true
             },
             onTidyCategories = {
                 showToolsSheet = false

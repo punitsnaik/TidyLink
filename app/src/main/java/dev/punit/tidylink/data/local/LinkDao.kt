@@ -4,6 +4,7 @@ import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.RawQuery
+import androidx.room.Transaction
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
@@ -173,6 +174,47 @@ interface LinkDao {
 
     @Query("DELETE FROM links WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
+
+    // --- Trash -------------------------------------------------------------
+
+    @Upsert
+    suspend fun insertTrashed(rows: List<TrashedLinkEntity>)
+
+    /**
+     * Moves rows into the trash as one unit. Without the transaction a kill
+     * between the two statements either loses the links entirely (deleted,
+     * never trashed) or duplicates them (trashed, never deleted).
+     */
+    @Transaction
+    suspend fun moveToTrash(rows: List<TrashedLinkEntity>, ids: List<String>) {
+        insertTrashed(rows)
+        deleteByIds(ids)
+    }
+
+    /** Restoring is the same two steps in the other order, same reasoning. */
+    @Transaction
+    suspend fun restoreFromTrash(links: List<LinkEntity>, ids: List<String>) {
+        upsertAll(links)
+        deleteTrashed(ids)
+    }
+
+    @Query("SELECT * FROM trashed_links ORDER BY deletedAt DESC")
+    fun observeTrash(): Flow<List<TrashedLinkEntity>>
+
+    @Query("SELECT * FROM trashed_links WHERE id IN (:ids)")
+    suspend fun getTrashedByIds(ids: List<String>): List<TrashedLinkEntity>
+
+    @Query("SELECT COUNT(*) FROM trashed_links")
+    fun countTrashed(): Flow<Int>
+
+    @Query("DELETE FROM trashed_links WHERE id IN (:ids)")
+    suspend fun deleteTrashed(ids: List<String>)
+
+    @Query("DELETE FROM trashed_links")
+    suspend fun emptyTrash()
+
+    @Query("DELETE FROM trashed_links WHERE deletedAt < :cutoff")
+    suspend fun purgeTrashOlderThan(cutoff: Long)
 }
 
 /** Runs of letters/digits/underscore - everything else is a separator. */
