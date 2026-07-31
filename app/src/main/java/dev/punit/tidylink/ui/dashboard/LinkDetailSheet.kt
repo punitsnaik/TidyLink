@@ -306,7 +306,7 @@ internal fun LinkDetailSheet(
  * Material "content copy" glyph, hand-built because material-icons-core
  * doesn't include it (and the extended artifact isn't worth the dependency).
  */
-private val CopyIcon: ImageVector by lazy {
+internal val CopyIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "ContentCopy",
         defaultWidth = 24.dp,
