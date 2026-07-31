@@ -1,5 +1,6 @@
 package dev.punit.tidylink.ui.dashboard
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -38,12 +40,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +69,7 @@ fun DashboardScreen(
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val backupState by viewModel.backupState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     // LocalResources (not context.resources): stays correct across locale /
@@ -79,6 +84,10 @@ fun DashboardScreen(
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
     var showTidyConfirm by rememberSaveable { mutableStateOf(false) }
+    var showDuplicatesConfirm by rememberSaveable { mutableStateOf(false) }
+    var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
+    var showTrashSheet by rememberSaveable { mutableStateOf(false) }
+    var showEmptyTrashConfirm by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
@@ -189,6 +198,65 @@ fun DashboardScreen(
         }
     }
 
+    // Bookmark import: the folder choice is made in a dialog BEFORE the
+    // picker opens, so this launcher only has to carry the answer.
+    var importFoldersAsCategories by rememberSaveable { mutableStateOf(true) }
+    val bookmarkImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = try {
+                val summary = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        viewModel.importBookmarks(stream, importFoldersAsCategories)
+                    }
+                }
+                when {
+                    summary == null -> resources.getString(R.string.msg_import_invalid)
+                    summary.imported == 0 -> resources.getString(
+                        R.string.msg_imported_bookmarks_none
+                    )
+                    summary.skipped > 0 -> resources.getString(
+                        R.string.msg_imported_bookmarks_with_skips,
+                        summary.imported,
+                        summary.skipped,
+                    )
+                    else -> resources.getQuantityString(
+                        R.plurals.msg_imported_bookmarks,
+                        summary.imported,
+                        summary.imported,
+                    )
+                }
+            } catch (e: ImportTooLargeException) {
+                resources.getString(R.string.msg_import_too_large)
+            } catch (e: Exception) {
+                resources.getString(R.string.msg_import_failed)
+            }
+            snackbarHostState.showSnackbar(text)
+        }
+    }
+
+    // Backup folder: a TREE uri, not the CreateDocument uri the manual
+    // export uses. Only a tree uri can be re-opened later, and only with
+    // takePersistableUriPermission does it survive a reboot - without that
+    // call the weekly worker would silently start failing after a restart.
+    val backupFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        context.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+        viewModel.enableBackup(uri.toString())
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                resources.getString(R.string.msg_auto_backup_enabled)
+            )
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -204,6 +272,14 @@ fun DashboardScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = viewModel::markSelectedRead) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = stringResource(
+                                    R.string.action_mark_selected_read
+                                ),
+                            )
+                        }
                         IconButton(onClick = { showMoveDialog = true }) {
                             Icon(
                                 Icons.Default.Edit,
@@ -296,6 +372,22 @@ fun DashboardScreen(
                 onThemeClick = { showThemeSheet = true },
                 onAiProviders = { showAiProviders = true },
                 onExport = { exportLauncher.launch("tidylink-backup.json") },
+                onImportBookmarks = { showBookmarkImport = true },
+                backupState = backupState,
+                // Turning it ON always re-opens the picker: the row is also
+                // the recovery path when the chosen folder has gone away.
+                onToggleAutoBackup = {
+                    if (backupState.enabled) {
+                        viewModel.disableBackup()
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                resources.getString(R.string.msg_auto_backup_disabled)
+                            )
+                        }
+                    } else {
+                        backupFolderLauncher.launch(null)
+                    }
+                },
                 onImportJson = {
                     importLauncher.launch(
                         arrayOf("application/json", "application/octet-stream")
@@ -375,14 +467,96 @@ fun DashboardScreen(
         )
     }
 
+    if (showTrashSheet) {
+        val trashed by viewModel.trashedLinks.collectAsStateWithLifecycle()
+        TrashSheet(
+            trashed = trashed,
+            onRestore = viewModel::restoreFromTrash,
+            onDeleteForever = viewModel::deleteFromTrashForever,
+            onEmptyTrash = {
+                showTrashSheet = false
+                showEmptyTrashConfirm = true
+            },
+            onDismiss = { showTrashSheet = false },
+        )
+    }
+
+    // Emptying the trash is the one genuinely irreversible action in the
+    // app - everything else this sheet offers can be undone.
+    if (showEmptyTrashConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEmptyTrashConfirm = false },
+            title = { Text(stringResource(R.string.dialog_empty_trash_title)) },
+            text = { Text(stringResource(R.string.dialog_empty_trash_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEmptyTrashConfirm = false
+                        viewModel.emptyTrash()
+                    },
+                ) { Text(stringResource(R.string.action_empty_trash)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmptyTrashConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (showBookmarkImport) {
+        BookmarkImportDialog(
+            onConfirm = { useFolders ->
+                showBookmarkImport = false
+                importFoldersAsCategories = useFolders
+                // Some file providers mislabel exported bookmarks as
+                // application/octet-stream or text/plain, so the filter
+                // can't be text/html alone or the file is greyed out.
+                bookmarkImportLauncher.launch(arrayOf("text/html", "text/plain", "*/*"))
+            },
+            onDismiss = { showBookmarkImport = false },
+        )
+    }
+
+    // Merging deletes rows. It keeps the richest copy and folds the others
+    // into it, but it still can't be undone - state the count first.
+    if (showDuplicatesConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDuplicatesConfirm = false },
+            title = { Text(stringResource(R.string.dialog_duplicates_title)) },
+            text = {
+                Text(
+                    pluralStringResource(
+                        R.plurals.dialog_duplicates_body,
+                        uiState.duplicateCount,
+                        uiState.duplicateCount,
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDuplicatesConfirm = false
+                        viewModel.mergeDuplicates()
+                    },
+                ) { Text(stringResource(R.string.dialog_duplicates_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDuplicatesConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     editingLinkId?.let { id ->
         val editingLink by remember(id) { viewModel.observeLink(id) }
             .collectAsStateWithLifecycle(initialValue = null)
         editingLink?.let { link ->
             EditLinkDialog(
                 link = link,
-                onConfirm = { title, category, tags ->
-                    viewModel.editLink(link, title, category, tags)
+                onConfirm = { title, category, tags, note ->
+                    viewModel.editLink(link, title, category, tags, note)
                     editingLinkId = null
                 },
                 onDismiss = { editingLinkId = null },
@@ -393,13 +567,23 @@ fun DashboardScreen(
     if (showToolsSheet) {
         ToolsSheet(
             isRefreshing = uiState.isRefreshing,
+            duplicateCount = uiState.duplicateCount,
+            trashCount = uiState.trashCount,
             onFetchMissingDetails = {
                 showToolsSheet = false
                 viewModel.refreshAll()
             },
+            onOpenTrash = {
+                showToolsSheet = false
+                showTrashSheet = true
+            },
             onTidyCategories = {
                 showToolsSheet = false
                 showTidyConfirm = true
+            },
+            onMergeDuplicates = {
+                showToolsSheet = false
+                showDuplicatesConfirm = true
             },
             onDismiss = { showToolsSheet = false },
         )
@@ -461,6 +645,10 @@ fun DashboardScreen(
                 onDismiss = { selectedLinkId = null },
                 onOpen = {
                     selectedLinkId = null
+                    // Marked read here rather than by a separate gesture:
+                    // read state that has to be maintained by hand doesn't
+                    // get maintained, and the unread filter would rot.
+                    viewModel.markRead(link)
                     openLink(context, link.url)
                 },
                 // Keep the sheet open: updated details animate in place.
@@ -471,6 +659,17 @@ fun DashboardScreen(
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
+                onToggleRead = { viewModel.toggleRead(link) },
+                // Dismiss so the filtered library is actually visible -
+                // leaving the sheet up would hide the result of the tap.
+                // The sheet is reachable from Pinned too, and the tag
+                // filter only drives the Links grid, so switch tabs or the
+                // tap looks like it did nothing.
+                onSelectTag = { tag ->
+                    selectedLinkId = null
+                    viewModel.selectTag(tag)
+                    currentTab = DashboardTab.Links
+                },
             )
         }
     }

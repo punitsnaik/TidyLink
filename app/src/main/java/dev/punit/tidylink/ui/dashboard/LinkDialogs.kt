@@ -4,13 +4,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -20,7 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -33,22 +43,87 @@ import dev.punit.tidylink.data.UrlCanonicalizer
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 
-/** Manual edit of a link's title, category, and tags. */
+/**
+ * Asked before the file picker opens, not after: the folder decision
+ * changes what the import produces, and a checkbox buried in a post-import
+ * "undo?" prompt would be too late.
+ */
+@Composable
+internal fun BookmarkImportDialog(
+    onConfirm: (useFoldersAsCategories: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var useFolders by rememberSaveable { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dialog_import_bookmarks_title)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.dialog_import_bookmarks_body))
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { useFolders = !useFolders },
+                ) {
+                    Checkbox(checked = useFolders, onCheckedChange = { useFolders = it })
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(R.string.dialog_import_bookmarks_use_folders),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                // Unchecked means every imported link goes to the AI
+                // classifier. On a 500-bookmark export that is 500 calls
+                // against the user's own key - say so before they tap.
+                Text(
+                    text = stringResource(
+                        if (useFolders) {
+                            R.string.dialog_import_bookmarks_folders_note
+                        } else {
+                            R.string.dialog_import_bookmarks_ai_note
+                        }
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(useFolders) }) {
+                Text(stringResource(R.string.dialog_import_bookmarks_choose))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}
+
+/** Manual edit of a link's title, category, tags, and personal note. */
 @Composable
 internal fun EditLinkDialog(
     link: LinkEntity,
-    onConfirm: (title: String, category: String, tags: String) -> Unit,
+    onConfirm: (title: String, category: String, tags: String, note: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var title by rememberSaveable(link.id) { mutableStateOf(link.title) }
     var category by rememberSaveable(link.id) { mutableStateOf(link.category) }
     var tags by rememberSaveable(link.id) { mutableStateOf(link.tags.joinToString(", ")) }
+    var note by rememberSaveable(link.id) { mutableStateOf(link.note) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.dialog_edit_title)) },
         text = {
-            Column {
+            // Scrollable: four fields (one of them multi-line) don't fit an
+            // AlertDialog on a short screen or with a keyboard up.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -70,11 +145,20 @@ internal fun EditLinkDialog(
                     label = { Text(stringResource(R.string.field_tags)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text(stringResource(R.string.field_note)) },
+                    placeholder = { Text(stringResource(R.string.field_note_hint)) },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(title, category, tags) },
+                onClick = { onConfirm(title, category, tags, note) },
                 enabled = title.isNotBlank(),
             ) { Text(stringResource(R.string.action_save)) }
         },
