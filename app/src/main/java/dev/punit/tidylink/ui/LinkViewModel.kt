@@ -96,6 +96,8 @@ data class LinkUiState(
     val refreshingIds: Set<String> = emptySet(),
     /** Links still awaiting their first scrape (background enrichment). */
     val pendingEnrichment: Int = 0,
+    /** Redundant copies waiting to be merged - shown in the Tools sheet. */
+    val duplicateCount: Int = 0,
 ) {
     val isSelectionMode: Boolean get() = selectedIds.isNotEmpty()
 }
@@ -171,6 +173,7 @@ class LinkViewModel(
         val sortOrder: SortOrder = SortOrder.NEWEST,
         val pendingEnrichment: Int = 0,
         val tags: List<TagCount> = emptyList(),
+        val duplicateCount: Int = 0,
     )
 
     /** Bundle secondary state so each combine stays within 5 flows. */
@@ -184,6 +187,9 @@ class LinkViewModel(
             transient.copy(pendingEnrichment = pending)
         }
         .combine(repository.getTagCounts()) { transient, tags -> transient.copy(tags = tags) }
+        .combine(repository.duplicateCount()) { transient, dupes ->
+            transient.copy(duplicateCount = dupes)
+        }
 
     val uiState: StateFlow<LinkUiState> = combine(
         repository.getCategories(),
@@ -206,6 +212,7 @@ class LinkViewModel(
             selectedIds = transient.selectedIds,
             refreshingIds = transient.refreshingIds,
             pendingEnrichment = transient.pendingEnrichment,
+            duplicateCount = transient.duplicateCount,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -430,6 +437,39 @@ class LinkViewModel(
                 }
             } catch (e: Exception) {
                 message.value = UiMessage.Text(R.string.msg_tidy_failed)
+            } finally {
+                isProcessing.value = false
+            }
+        }
+    }
+
+    /**
+     * Collapses duplicate copies of the same page into one row each.
+     *
+     * This already ran as the first step of [refreshAll]'s sweep, where it
+     * was invisible - nothing said it had happened, and it only ran at all
+     * when there were links left to scrape. Here it is its own action, with
+     * a count reported back.
+     */
+    fun mergeDuplicates() {
+        if (isProcessing.value) return
+        viewModelScope.launch {
+            isProcessing.value = true
+            try {
+                val removed = repository.mergeDuplicates()
+                message.value = if (removed > 0) {
+                    UiMessage.Plural(
+                        R.plurals.msg_duplicates_merged,
+                        removed,
+                        listOf(removed),
+                    )
+                } else {
+                    UiMessage.Text(R.string.msg_duplicates_none)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_duplicates_failed)
             } finally {
                 isProcessing.value = false
             }

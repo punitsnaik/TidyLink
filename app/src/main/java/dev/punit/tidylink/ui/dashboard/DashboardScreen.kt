@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -79,6 +80,7 @@ fun DashboardScreen(
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
     var showTidyConfirm by rememberSaveable { mutableStateOf(false) }
+    var showDuplicatesConfirm by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
@@ -375,6 +377,37 @@ fun DashboardScreen(
         )
     }
 
+    // Merging deletes rows. It keeps the richest copy and folds the others
+    // into it, but it still can't be undone - state the count first.
+    if (showDuplicatesConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDuplicatesConfirm = false },
+            title = { Text(stringResource(R.string.dialog_duplicates_title)) },
+            text = {
+                Text(
+                    pluralStringResource(
+                        R.plurals.dialog_duplicates_body,
+                        uiState.duplicateCount,
+                        uiState.duplicateCount,
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDuplicatesConfirm = false
+                        viewModel.mergeDuplicates()
+                    },
+                ) { Text(stringResource(R.string.dialog_duplicates_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDuplicatesConfirm = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     editingLinkId?.let { id ->
         val editingLink by remember(id) { viewModel.observeLink(id) }
             .collectAsStateWithLifecycle(initialValue = null)
@@ -393,6 +426,7 @@ fun DashboardScreen(
     if (showToolsSheet) {
         ToolsSheet(
             isRefreshing = uiState.isRefreshing,
+            duplicateCount = uiState.duplicateCount,
             onFetchMissingDetails = {
                 showToolsSheet = false
                 viewModel.refreshAll()
@@ -400,6 +434,10 @@ fun DashboardScreen(
             onTidyCategories = {
                 showToolsSheet = false
                 showTidyConfirm = true
+            },
+            onMergeDuplicates = {
+                showToolsSheet = false
+                showDuplicatesConfirm = true
             },
             onDismiss = { showToolsSheet = false },
         )
