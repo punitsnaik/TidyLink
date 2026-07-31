@@ -89,6 +89,13 @@
     <string name="settings_export_subtitle">Save a backup of all your links</string>
     <string name="settings_import_json_title">Import links (JSON)</string>
     <string name="settings_import_json_subtitle">Restore links from a backup file</string>
+    <string name="settings_auto_backup_title">Automatic backup</string>
+    <string name="settings_auto_backup_off">Off — your links only exist on this device</string>
+    <string name="settings_auto_backup_pending">On — first backup runs shortly</string>
+    <string name="settings_auto_backup_last">On — last backup %1$s</string>
+    <string name="settings_auto_backup_failed">Backup failed — the folder may have been moved or deleted. Tap to pick it again.</string>
+    <string name="msg_auto_backup_enabled">Backing up weekly to that folder</string>
+    <string name="msg_auto_backup_disabled">Automatic backup turned off</string>
     <string name="settings_import_bookmarks_title">Import browser bookmarks</string>
     <string name="settings_import_bookmarks_subtitle">Bring in an HTML export from Chrome, Firefox or Safari</string>
 
