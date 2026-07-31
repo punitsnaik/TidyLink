@@ -58,6 +58,47 @@ data class RefreshSummary(
 /** Result of a category tidy-up pass. */
 data class TidySummary(val merged: Int, val aiUnavailable: Boolean)
 
+/**
+ * Collapses one group of duplicate rows into the single row that should
+ * survive, or null when the group holds nothing to merge.
+ *
+ * Deliberately a merge and not a "keep one, drop the rest": the duplicates
+ * are the same page saved at different times, so one copy may have the
+ * image, another the AI summary, and a third the pin. Picking a winner
+ * outright would silently throw away whichever field the loser held.
+ *
+ * Pure and file-level rather than a method so the rule can be tested
+ * directly - it decides which rows get deleted, which is not something to
+ * verify only by running it against a real library.
+ */
+internal fun mergeDuplicateGroup(group: List<LinkEntity>): LinkEntity? {
+    if (group.size <= 1) return null
+    // Richest row wins: a real category beats the fallback, an image beats
+    // none, a summary beats none. Ties go to the earliest save.
+    val best = group.maxWithOrNull(
+        compareBy(
+            { it.category != LinkRepository.FALLBACK_CATEGORY },
+            { it.imageUrl != null },
+            { it.aiSummary.isNotBlank() },
+            { -it.timestamp },
+        )
+    ) ?: return null
+    return best.copy(
+        imageUrl = best.imageUrl ?: group.firstNotNullOfOrNull { it.imageUrl },
+        description = best.description.ifBlank {
+            group.firstOrNull { it.description.isNotBlank() }?.description.orEmpty()
+        },
+        aiSummary = best.aiSummary.ifBlank {
+            group.firstOrNull { it.aiSummary.isNotBlank() }?.aiSummary.orEmpty()
+        },
+        // The link has been in the library since its earliest save, and a
+        // pin on any copy is an explicit user action - neither survives
+        // "keep the newest".
+        timestamp = group.minOf { it.timestamp },
+        pinned = group.any { it.pinned },
+    ).let { if (it.dedupeKey.isNotBlank()) it else it.copy(dedupeKey = UrlCanonicalizer.dedupeKey(it.url)) }
+}
+
 class LinkRepository(
     private val linkDao: LinkDao,
     private val scraper: LinkScraperService,
@@ -126,6 +167,9 @@ class LinkRepository(
 
     /** Links still awaiting their first scrape - drives the progress banner. */
     fun pendingEnrichmentCount(): Flow<Int> = linkDao.countNeverScraped()
+
+    /** Redundant copies in the library - drives the Tools sheet subtitle. */
+    fun duplicateCount(): Flow<Int> = linkDao.countDuplicates()
 
     /**
      * True when links are still waiting for their first scrape - checked at
@@ -402,32 +446,21 @@ class LinkRepository(
      * Merges rows that are the same page saved under URL variants (tracking
      * params, www/no-www, http/https). Keeps the richest row, fills any gaps
      * from the others, and deletes the rest.
+     *
+     * Returns how many rows were removed, so the Tools sheet can report the
+     * result of an explicit "merge duplicates" tap. Callers that run this as
+     * part of a wider sweep ignore it.
      */
-    private suspend fun mergeDuplicates() {
+    internal suspend fun mergeDuplicates(): Int {
+        var removed = 0
         linkDao.getAllOnce().groupBy { UrlCanonicalizer.dedupeKey(it.url) }.values.forEach { group ->
-            if (group.size <= 1) return@forEach
-            val best = group.maxWithOrNull(
-                compareBy(
-                    { it.category != FALLBACK_CATEGORY },
-                    { it.imageUrl != null },
-                    { it.aiSummary.isNotBlank() },
-                    { -it.timestamp }, // tie-break: prefer the earliest save
-                )
-            ) ?: return@forEach
-            val merged = best.copy(
-                imageUrl = best.imageUrl ?: group.firstNotNullOfOrNull { it.imageUrl },
-                description = best.description.ifBlank {
-                    group.firstOrNull { it.description.isNotBlank() }?.description.orEmpty()
-                },
-                aiSummary = best.aiSummary.ifBlank {
-                    group.firstOrNull { it.aiSummary.isNotBlank() }?.aiSummary.orEmpty()
-                },
-                timestamp = group.minOf { it.timestamp },
-                pinned = group.any { it.pinned },
-            ).withDedupeKey()
+            val merged = mergeDuplicateGroup(group) ?: return@forEach
             linkDao.upsert(merged)
-            linkDao.deleteByIds(group.filter { it.id != best.id }.map { it.id })
+            val doomed = group.filter { it.id != merged.id }.map { it.id }
+            linkDao.deleteByIds(doomed)
+            removed += doomed.size
         }
+        return removed
     }
 
     /**

@@ -95,6 +95,16 @@ interface LinkDao {
 
 
     /** Legacy rows saved before the dedupeKey column existed. */
+    /**
+     * How many rows are redundant copies - i.e. how many would disappear if
+     * duplicates were merged. Rows saved before the column existed have a
+     * blank key and are excluded; `backfillDedupeKeys` fills those at app
+     * start, and the merge itself recomputes keys anyway, so it can only
+     * ever remove at least this many, never fewer.
+     */
+    @Query("SELECT COUNT(*) - COUNT(DISTINCT dedupeKey) FROM links WHERE dedupeKey != ''")
+    fun countDuplicates(): Flow<Int>
+
     @Query("SELECT * FROM links WHERE dedupeKey = ''")
     suspend fun getMissingDedupeKeys(): List<LinkEntity>
 

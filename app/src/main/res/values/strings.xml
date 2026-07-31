@@ -93,6 +93,18 @@
     <string name="tools_fetch_missing_busy">Fetching…</string>
     <string name="tools_tidy_title">Tidy up categories</string>
     <string name="tools_tidy_subtitle">Merge similar categories into a smaller set. This can\'t be undone.</string>
+    <string name="tools_duplicates_title">Merge duplicates</string>
+    <plurals name="tools_duplicates_subtitle">
+        <item quantity="one">%1$d duplicate copy found. Details are combined into one link.</item>
+        <item quantity="other">%1$d duplicate copies found. Details are combined into one link.</item>
+    </plurals>
+    <string name="tools_duplicates_none">No duplicates found</string>
+    <string name="dialog_duplicates_title">Merge duplicates?</string>
+    <plurals name="dialog_duplicates_body">
+        <item quantity="one">%1$d redundant copy will be combined into the link it duplicates. Images, summaries and pins are kept. This can\'t be undone.</item>
+        <item quantity="other">%1$d redundant copies will be combined into the links they duplicate. Images, summaries and pins are kept. This can\'t be undone.</item>
+    </plurals>
+    <string name="dialog_duplicates_confirm">Merge</string>
     <string name="settings_section_help">Help</string>
     <string name="settings_section_about">About</string>
     <string name="settings_show_intro_title">Show intro again</string>
@@ -180,6 +192,12 @@
     <string name="msg_tidy_ai_unavailable">Couldn\'t tidy categories (AI rate limit) — try again later</string>
     <string name="msg_tidy_already">Categories already tidy</string>
     <string name="msg_tidy_failed">Couldn\'t tidy categories</string>
+    <plurals name="msg_duplicates_merged">
+        <item quantity="one">Merged %d duplicate link</item>
+        <item quantity="other">Merged %d duplicate links</item>
+    </plurals>
+    <string name="msg_duplicates_none">No duplicates to merge</string>
+    <string name="msg_duplicates_failed">Couldn\'t merge duplicates</string>
 
     <!-- Share receiver -->
     <string name="share_no_link_found">No link found in shared text</string>
