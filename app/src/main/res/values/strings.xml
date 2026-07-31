@@ -119,6 +119,24 @@
         <item quantity="other">%1$d redundant copies will be combined into the links they duplicate. Images, summaries and pins are kept. This can\'t be undone.</item>
     </plurals>
     <string name="dialog_duplicates_confirm">Merge</string>
+    <string name="tools_trash_title">Trash</string>
+    <string name="tools_trash_empty">Nothing deleted recently</string>
+    <plurals name="tools_trash_subtitle">
+        <item quantity="one">%1$d deleted link, kept for 90 days</item>
+        <item quantity="other">%1$d deleted links, kept for 90 days</item>
+    </plurals>
+    <string name="sheet_trash_title">Trash</string>
+    <string name="sheet_trash_subtitle">Deleted links are kept for 90 days</string>
+    <string name="trash_empty">Nothing in the trash.</string>
+    <plurals name="trash_days_left">
+        <item quantity="one">%1$d day left</item>
+        <item quantity="other">%1$d days left</item>
+    </plurals>
+    <string name="action_restore">Restore</string>
+    <string name="action_delete_forever">Delete permanently</string>
+    <string name="action_empty_trash">Empty</string>
+    <string name="dialog_empty_trash_title">Empty the trash?</string>
+    <string name="dialog_empty_trash_body">Every link in the trash will be permanently deleted. This can\'t be undone.</string>
     <string name="settings_section_help">Help</string>
     <string name="settings_section_about">About</string>
     <string name="settings_show_intro_title">Show intro again</string>
@@ -195,9 +213,16 @@
     <string name="msg_refreshed_no_provider">Refreshed %1$d links — %2$d not categorized: add an AI provider in Settings</string>
     <string name="msg_refresh_failed">Refresh failed</string>
     <plurals name="links_deleted">
-        <item quantity="one">Link deleted</item>
-        <item quantity="other">%d links deleted</item>
+        <item quantity="one">Moved to trash</item>
+        <item quantity="other">%d links moved to trash</item>
     </plurals>
+    <plurals name="msg_restored">
+        <item quantity="one">Link restored</item>
+        <item quantity="other">%d links restored</item>
+    </plurals>
+    <string name="msg_restore_failed">Couldn\'t restore</string>
+    <string name="msg_trash_emptied">Trash emptied</string>
+    <string name="msg_trash_delete_failed">Couldn\'t delete from trash</string>
     <string name="action_undo">Undo</string>
     <string name="msg_import_failed">Import failed</string>
     <string name="msg_import_invalid">Import failed: invalid file</string>

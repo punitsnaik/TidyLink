@@ -18,6 +18,7 @@ import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.LinkQueryBuilder
 import dev.punit.tidylink.data.local.SortOrder
 import dev.punit.tidylink.data.local.TagCount
+import dev.punit.tidylink.data.local.TrashedLinkEntity
 import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.scraper.ScrapedData
 import dev.punit.tidylink.data.work.ClassificationRetryWorker
@@ -28,6 +29,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -35,6 +37,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
@@ -61,6 +65,9 @@ data class TidySummary(val merged: Int, val aiUnavailable: Boolean)
 
 /** Result of importing a browser bookmarks export. */
 data class BookmarkImportSummary(val imported: Int, val skipped: Int)
+
+/** A trashed link, decoded back into an entity, with when it was deleted. */
+data class TrashedLink(val link: LinkEntity, val deletedAt: Long)
 
 /** The chosen file was too large to read safely - see MAX_IMPORT_BYTES. */
 class ImportTooLargeException : Exception()
@@ -170,7 +177,12 @@ class LinkRepository(
                 )
             }
             .sortedWith(compareByDescending<TagCount> { it.count }.thenBy { it.tag.lowercase() })
-    }
+    }.flowOn(Dispatchers.Default)
+    // flowOn is load-bearing, not decoration. Room's own flow carries an
+    // internal flowOn(queryDispatcher), but a .map applied DOWNSTREAM of
+    // that runs in the collector's context - here Dispatchers.Main, via
+    // stateIn(viewModelScope). Without this every write to `links` re-folds
+    // every tag array in the library on the UI thread.
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     fun pinnedPagingSource(): PagingSource<Int, LinkEntity> = linkDao.pinnedPagingSource()
@@ -194,13 +206,88 @@ class LinkRepository(
 
     suspend fun getLinksByIds(ids: List<String>): List<LinkEntity> = linkDao.getByIds(ids)
 
-    suspend fun deleteLink(id: String) = linkDao.delete(id)
+    // --- Trash ---------------------------------------------------------------
 
-    suspend fun deleteLinks(ids: List<String>) = linkDao.deleteByIds(ids)
+    /**
+     * Soft-deletes: rows leave `links` and land in `trashed_links` as
+     * serialized JSON, in one transaction.
+     *
+     * Everything that reads the library therefore excludes trash without
+     * asking - search, category tiles, tag counts, export, backup and the
+     * enrichment sweep all query `links` and simply cannot see these rows.
+     */
+    suspend fun moveToTrash(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val links = linkDao.getByIds(ids)
+        if (links.isEmpty()) return
+        val now = System.currentTimeMillis()
+        linkDao.moveToTrash(
+            rows = links.map {
+                TrashedLinkEntity(id = it.id, json = json.encodeToString(it), deletedAt = now)
+            },
+            ids = links.map { it.id },
+        )
+    }
 
-    /** Used by undo-delete: puts previously deleted entities back. */
-    suspend fun restoreLinks(links: List<LinkEntity>) =
-        linkDao.upsertAll(links.map { it.withDedupeKey() })
+    /**
+     * The ONE restore path - the undo snackbar and the trash sheet both
+     * come through here, so there is no second version to drift out of step.
+     *
+     * A row that fails to decode is dropped rather than aborting the whole
+     * restore: one corrupt entry must not make the other forty-nine
+     * unrecoverable.
+     */
+    suspend fun restoreFromTrash(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        val trashed = linkDao.getTrashedByIds(ids)
+        val links = trashed.mapNotNull { row ->
+            runCatching { json.decodeFromString<LinkEntity>(row.json) }.getOrNull()
+        }
+        if (links.isEmpty()) return 0
+        linkDao.restoreFromTrash(links.map { it.withDedupeKey() }, trashed.map { it.id })
+        return links.size
+    }
+
+    /**
+     * Trash contents, already decoded. Decoding happens off the main thread
+     * for the same reason [getTagCounts] does: a `.map` downstream of
+     * Room's flow runs in the COLLECTOR's context, and JSON-parsing a few
+     * hundred rows there would land on the UI thread.
+     */
+    fun observeTrash(): Flow<List<TrashedLink>> = linkDao.observeTrash()
+        .map { rows ->
+            rows.mapNotNull { row ->
+                decodeTrashed(row)?.let { TrashedLink(it, row.deletedAt) }
+            }
+        }
+        .flowOn(Dispatchers.Default)
+
+    fun trashCount(): Flow<Int> = linkDao.countTrashed()
+
+    suspend fun deleteFromTrashForever(ids: List<String>) = linkDao.deleteTrashed(ids)
+
+    suspend fun emptyTrash() = linkDao.emptyTrash()
+
+    /** Decodes a trashed row for display; null if it can't be read. */
+    fun decodeTrashed(row: TrashedLinkEntity): LinkEntity? =
+        runCatching { json.decodeFromString<LinkEntity>(row.json) }.getOrNull()
+
+    /**
+     * Called once at app start, next to [backfillDedupeKeys]. A worker
+     * would be more machinery than a single DELETE justifies, and trash
+     * purged a few hours late harms nobody.
+     */
+    suspend fun purgeExpiredTrash() =
+        linkDao.purgeTrashOlderThan(System.currentTimeMillis() - TRASH_RETENTION_MS)
+
+    /**
+     * Deleting from the library means trashing it. Note this is NOT what
+     * duplicate merging does - see [mergeDuplicates], which still hard
+     * deletes on purpose.
+     */
+    suspend fun deleteLink(id: String) = moveToTrash(listOf(id))
+
+    suspend fun deleteLinks(ids: List<String>) = moveToTrash(ids)
 
     /** Manual edit from the UI: title / category / tags. */
     suspend fun updateLinkDetails(
@@ -766,5 +853,13 @@ class LinkRepository(
          * something that would exhaust memory or stall the parser.
          */
         private const val MAX_IMPORT_BYTES = 8 * 1024 * 1024
+
+        /**
+         * How long a deleted link stays recoverable. Internal, not private,
+         * so the trash sheet counts down against this exact value instead
+         * of keeping its own copy to drift out of step.
+         */
+        internal const val TRASH_RETENTION_DAYS = 90L
+        private const val TRASH_RETENTION_MS = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000
     }
 }
