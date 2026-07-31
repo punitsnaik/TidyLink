@@ -1,5 +1,6 @@
 package dev.punit.tidylink.ui.dashboard
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -68,6 +69,7 @@ fun DashboardScreen(
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val backupState by viewModel.backupState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     // LocalResources (not context.resources): stays correct across locale /
@@ -233,6 +235,26 @@ fun DashboardScreen(
         }
     }
 
+    // Backup folder: a TREE uri, not the CreateDocument uri the manual
+    // export uses. Only a tree uri can be re-opened later, and only with
+    // takePersistableUriPermission does it survive a reboot - without that
+    // call the weekly worker would silently start failing after a restart.
+    val backupFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        context.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+        viewModel.enableBackup(uri.toString())
+        scope.launch {
+            snackbarHostState.showSnackbar(
+                resources.getString(R.string.msg_auto_backup_enabled)
+            )
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -349,6 +371,21 @@ fun DashboardScreen(
                 onAiProviders = { showAiProviders = true },
                 onExport = { exportLauncher.launch("tidylink-backup.json") },
                 onImportBookmarks = { showBookmarkImport = true },
+                backupState = backupState,
+                // Turning it ON always re-opens the picker: the row is also
+                // the recovery path when the chosen folder has gone away.
+                onToggleAutoBackup = {
+                    if (backupState.enabled) {
+                        viewModel.disableBackup()
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                resources.getString(R.string.msg_auto_backup_disabled)
+                            )
+                        }
+                    } else {
+                        backupFolderLauncher.launch(null)
+                    }
+                },
                 onImportJson = {
                     importLauncher.launch(
                         arrayOf("application/json", "application/octet-stream")
