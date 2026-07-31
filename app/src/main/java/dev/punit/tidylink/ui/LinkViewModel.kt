@@ -19,6 +19,7 @@ import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
 import dev.punit.tidylink.data.local.TagCount
+import dev.punit.tidylink.data.repository.BookmarkImportSummary
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
@@ -484,6 +485,11 @@ class LinkViewModel(
 
     /** Returns number of imported links, or -1 on invalid JSON. */
     suspend fun importLinks(stream: InputStream): Int = repository.importLinks(stream)
+
+    suspend fun importBookmarks(
+        stream: InputStream,
+        useFoldersAsCategories: Boolean,
+    ): BookmarkImportSummary = repository.importBookmarks(stream, useFoldersAsCategories)
 
     /**
      * Merges the sprawling category list into a small set of broad ones

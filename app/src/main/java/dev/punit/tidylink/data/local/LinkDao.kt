@@ -105,6 +105,15 @@ interface LinkDao {
     @Query("SELECT COUNT(*) - COUNT(DISTINCT dedupeKey) FROM links WHERE dedupeKey != ''")
     fun countDuplicates(): Flow<Int>
 
+    /**
+     * Every dedupe key in the library, for bulk imports. One query beats N
+     * `getByDedupeKey` round trips when checking a few hundred bookmarks.
+     * (This existed once for the old .txt import and went away with it; a
+     * bulk import path makes it worth having again.)
+     */
+    @Query("SELECT dedupeKey FROM links WHERE dedupeKey != ''")
+    suspend fun getAllDedupeKeys(): List<String>
+
     @Query("SELECT * FROM links WHERE dedupeKey = ''")
     suspend fun getMissingDedupeKeys(): List<LinkEntity>
 
