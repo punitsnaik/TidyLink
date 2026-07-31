@@ -18,6 +18,7 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
+import dev.punit.tidylink.data.local.TagCount
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
@@ -80,8 +81,11 @@ sealed interface UpdateState {
 
 data class LinkUiState(
     val categories: List<CategoryCount> = emptyList(),
+    /** Tags across the library, busiest first - drives the tag filter row. */
+    val tags: List<TagCount> = emptyList(),
     val searchQuery: String = "",
     val selectedCategory: String? = null,
+    val selectedTag: String? = null,
     val sortOrder: SortOrder = SortOrder.NEWEST,
     val isProcessing: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -108,6 +112,7 @@ class LinkViewModel(
 
     private val searchQuery = MutableStateFlow("")
     private val selectedCategory = MutableStateFlow<String?>(null)
+    private val selectedTag = MutableStateFlow<String?>(null)
     private val sortOrder = MutableStateFlow(SortOrder.NEWEST)
     private val isProcessing = MutableStateFlow(false)
     private val isRefreshing = MutableStateFlow(false)
@@ -116,24 +121,33 @@ class LinkViewModel(
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val refreshingIds = MutableStateFlow<Set<String>>(emptySet())
 
+    /** The four inputs that decide which links the grid shows. */
+    private data class LibraryQuery(
+        val search: String,
+        val category: String?,
+        val tag: String?,
+        val sort: SortOrder,
+    )
+
     /**
-     * Paged library: search (debounced), category filter, and sort all run
-     * in SQLite; Compose only ever holds the visible pages in memory, so a
-     * 10k-link library scrolls the same as a 100-link one.
+     * Paged library: search (debounced), category filter, tag filter and
+     * sort all run in SQLite; Compose only ever holds the visible pages in
+     * memory, so a 10k-link library scrolls the same as a 100-link one.
      */
     val links: Flow<PagingData<LinkEntity>> = combine(
         searchQuery.debounce(250),
         selectedCategory,
+        selectedTag,
         sortOrder,
-        ::Triple,
-    ).flatMapLatest { (query, category, sort) ->
+        ::LibraryQuery,
+    ).flatMapLatest { q ->
         Pager(
             config = PagingConfig(
                 pageSize = 60,
                 prefetchDistance = 90,
                 enablePlaceholders = false,
             ),
-            pagingSourceFactory = { repository.pagingSource(query, category, sort) },
+            pagingSourceFactory = { repository.pagingSource(q.search, q.category, q.sort, q.tag) },
         ).flow
     }.cachedIn(viewModelScope)
 
@@ -156,6 +170,7 @@ class LinkViewModel(
         val refreshingIds: Set<String> = emptySet(),
         val sortOrder: SortOrder = SortOrder.NEWEST,
         val pendingEnrichment: Int = 0,
+        val tags: List<TagCount> = emptyList(),
     )
 
     /** Bundle secondary state so each combine stays within 5 flows. */
@@ -168,17 +183,21 @@ class LinkViewModel(
         .combine(repository.pendingEnrichmentCount()) { transient, pending ->
             transient.copy(pendingEnrichment = pending)
         }
+        .combine(repository.getTagCounts()) { transient, tags -> transient.copy(tags = tags) }
 
     val uiState: StateFlow<LinkUiState> = combine(
         repository.getCategories(),
         searchQuery,
         selectedCategory,
+        selectedTag,
         transientState,
-    ) { categories, query, category, transient ->
+    ) { categories, query, category, tag, transient ->
         LinkUiState(
             categories = categories,
+            tags = transient.tags,
             searchQuery = query,
             selectedCategory = category,
+            selectedTag = tag,
             sortOrder = transient.sortOrder,
             isProcessing = transient.isProcessing,
             isRefreshing = transient.isRefreshing,
@@ -206,6 +225,11 @@ class LinkViewModel(
 
     fun selectCategory(category: String?) {
         selectedCategory.value = category
+    }
+
+    /** Pass null to clear. Composes with the category filter, doesn't replace it. */
+    fun selectTag(tag: String?) {
+        selectedTag.value = tag
     }
 
     fun setSortOrder(order: SortOrder) {
