@@ -22,6 +22,7 @@ import dev.punit.tidylink.data.local.SortOrder
 import dev.punit.tidylink.data.local.TagCount
 import dev.punit.tidylink.data.repository.BookmarkImportSummary
 import dev.punit.tidylink.data.repository.LinkRepository
+import dev.punit.tidylink.data.repository.TrashedLink
 import dev.punit.tidylink.data.settings.BackupState
 import dev.punit.tidylink.data.settings.BackupStore
 import dev.punit.tidylink.data.settings.LlmProvider
@@ -95,7 +96,8 @@ data class LinkUiState(
     val isProcessing: Boolean = false,
     val isRefreshing: Boolean = false,
     val message: UiMessage? = null,
-    val pendingUndo: List<LinkEntity> = emptyList(),
+    /** Ids of just-trashed links, for the undo snackbar. */
+    val pendingUndo: List<String> = emptyList(),
     val selectedIds: Set<String> = emptySet(),
     /** Links currently being refreshed individually (card / detail sheet). */
     val refreshingIds: Set<String> = emptySet(),
@@ -105,6 +107,8 @@ data class LinkUiState(
     val duplicateCount: Int = 0,
     /** Whether the grid is filtered to links that haven't been opened. */
     val unreadOnly: Boolean = false,
+    /** Links in the trash - shown on the Tools sheet row. */
+    val trashCount: Int = 0,
 ) {
     val isSelectionMode: Boolean get() = selectedIds.isNotEmpty()
 }
@@ -130,7 +134,7 @@ class LinkViewModel(
     private val isProcessing = MutableStateFlow(false)
     private val isRefreshing = MutableStateFlow(false)
     private val message = MutableStateFlow<UiMessage?>(null)
-    private val pendingUndo = MutableStateFlow<List<LinkEntity>>(emptyList())
+    private val pendingUndo = MutableStateFlow<List<String>>(emptyList())
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val refreshingIds = MutableStateFlow<Set<String>>(emptySet())
 
@@ -183,7 +187,7 @@ class LinkViewModel(
         val isProcessing: Boolean,
         val isRefreshing: Boolean,
         val message: UiMessage?,
-        val pendingUndo: List<LinkEntity>,
+        val pendingUndo: List<String>,
         val selectedIds: Set<String>,
         val refreshingIds: Set<String> = emptySet(),
         val sortOrder: SortOrder = SortOrder.NEWEST,
@@ -191,6 +195,7 @@ class LinkViewModel(
         val tags: List<TagCount> = emptyList(),
         val duplicateCount: Int = 0,
         val unreadOnly: Boolean = false,
+        val trashCount: Int = 0,
     )
 
     /** Bundle secondary state so each combine stays within 5 flows. */
@@ -208,6 +213,9 @@ class LinkViewModel(
             transient.copy(duplicateCount = dupes)
         }
         .combine(unreadOnly) { transient, unread -> transient.copy(unreadOnly = unread) }
+        .combine(repository.trashCount()) { transient, trashed ->
+            transient.copy(trashCount = trashed)
+        }
 
     val uiState: StateFlow<LinkUiState> = combine(
         repository.getCategories(),
@@ -232,6 +240,7 @@ class LinkViewModel(
             pendingEnrichment = transient.pendingEnrichment,
             duplicateCount = transient.duplicateCount,
             unreadOnly = transient.unreadOnly,
+            trashCount = transient.trashCount,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -458,27 +467,32 @@ class LinkViewModel(
     fun deleteLink(link: LinkEntity) {
         viewModelScope.launch {
             repository.deleteLink(link.id)
-            pendingUndo.value = listOf(link)
+            pendingUndo.value = listOf(link.id)
         }
     }
 
-    /** Bulk-deletes everything currently selected, keeping copies for undo. */
+    /** Bulk-deletes everything currently selected; all of it stays undoable. */
     fun deleteSelected() {
         val ids = selectedIds.value.toList()
         if (ids.isEmpty()) return
         selectedIds.value = emptySet()
         viewModelScope.launch {
-            val toDelete = repository.getLinksByIds(ids)
             repository.deleteLinks(ids)
-            pendingUndo.value = toDelete
+            pendingUndo.value = ids
         }
     }
 
+    /**
+     * Undo now goes through the same restore path as the trash sheet.
+     * Holding ids rather than entities is what makes that possible - and
+     * the entities no longer need holding, because the rows still exist in
+     * `trashed_links` whether or not the snackbar is still up.
+     */
     fun undoDelete() {
-        val links = pendingUndo.value
-        if (links.isEmpty()) return
+        val ids = pendingUndo.value
+        if (ids.isEmpty()) return
         pendingUndo.value = emptyList()
-        viewModelScope.launch { repository.restoreLinks(links) }
+        viewModelScope.launch { repository.restoreFromTrash(ids) }
     }
 
     fun clearUndo() {
@@ -709,6 +723,62 @@ class LinkViewModel(
 
     fun setThemeMode(mode: ThemeMode) {
         themeStore.setThemeMode(mode)
+    }
+
+    // --- Trash ------------------------------------------------------------
+
+    /**
+     * Only collected while the trash sheet is open - kept out of [uiState]
+     * so the whole trash isn't decoded on every unrelated library change.
+     */
+    val trashedLinks: StateFlow<List<TrashedLink>> = repository.observeTrash()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Shared by the undo snackbar and the trash sheet - one path, no drift. */
+    fun restoreFromTrash(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val restored = repository.restoreFromTrash(ids)
+                if (restored > 0) {
+                    message.value = UiMessage.Plural(
+                        R.plurals.msg_restored,
+                        restored,
+                        listOf(restored),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_restore_failed)
+            }
+        }
+    }
+
+    fun deleteFromTrashForever(ids: List<String>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.deleteFromTrashForever(ids)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_trash_delete_failed)
+            }
+        }
+    }
+
+    fun emptyTrash() {
+        viewModelScope.launch {
+            try {
+                repository.emptyTrash()
+                message.value = UiMessage.Text(R.string.msg_trash_emptied)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_trash_delete_failed)
+            }
+        }
     }
 
     // --- Scheduled backup ------------------------------------------------

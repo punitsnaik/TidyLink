@@ -9,8 +9,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [LinkEntity::class, LinkFtsEntity::class],
-    version = 5,
+    entities = [LinkEntity::class, LinkFtsEntity::class, TrashedLinkEntity::class],
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -28,7 +28,9 @@ abstract class AppDatabase : RoomDatabase() {
          * migration list would drift from this one.
          */
         val ALL_MIGRATIONS: Array<Migration>
-            get() = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            get() = arrayOf(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+            )
 
         /** v2: indexed dedupeKey (fast duplicate checks) + pinned flag. */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -115,6 +117,27 @@ abstract class AppDatabase : RoomDatabase() {
                         "tokenize=unicode61, content=`links`)"
                 )
                 db.execSQL("INSERT INTO `links_fts`(`links_fts`) VALUES('rebuild')")
+            }
+        }
+
+        /**
+         * v6: the trash table.
+         *
+         * One CREATE TABLE and nothing else - `links` is untouched, so
+         * there is no FTS drop-and-recreate here (unlike MIGRATION_4_5) and
+         * no DROP COLUMN (unlike MIGRATION_3_4). That is a consequence of
+         * trash being a separate table rather than a `deletedAt` column,
+         * not a coincidence.
+         *
+         * Must match the generated 6.json exactly; Room validates it.
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `trashed_links` (" +
+                        "`id` TEXT NOT NULL, `json` TEXT NOT NULL, " +
+                        "`deletedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
+                )
             }
         }
 
