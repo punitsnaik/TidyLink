@@ -1,5 +1,6 @@
 package dev.punit.tidylink.ui
 
+import android.content.Context
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -21,6 +22,8 @@ import dev.punit.tidylink.data.local.SortOrder
 import dev.punit.tidylink.data.local.TagCount
 import dev.punit.tidylink.data.repository.BookmarkImportSummary
 import dev.punit.tidylink.data.repository.LinkRepository
+import dev.punit.tidylink.data.settings.BackupState
+import dev.punit.tidylink.data.settings.BackupStore
 import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
@@ -29,6 +32,7 @@ import dev.punit.tidylink.data.settings.ThemeMode
 import dev.punit.tidylink.data.settings.ThemeStore
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
+import dev.punit.tidylink.data.work.BackupWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -111,6 +115,9 @@ class LinkViewModel(
     private val providerStore: LlmProviderStore,
     private val onboardingStore: OnboardingStore,
     private val themeStore: ThemeStore,
+    private val backupStore: BackupStore,
+    /** Only for scheduling WorkManager jobs - no UI or activity context here. */
+    private val appContext: Context,
     private val aiService: AiCategorizationService,
     private val updateChecker: UpdateChecker,
 ) : ViewModel() {
@@ -704,6 +711,26 @@ class LinkViewModel(
         themeStore.setThemeMode(mode)
     }
 
+    // --- Scheduled backup ------------------------------------------------
+
+    val backupState: StateFlow<BackupState> = backupStore.state
+
+    /**
+     * Runs one backup immediately as well as scheduling the weekly one:
+     * finding out a week later that the folder choice didn't work would
+     * defeat the point of having a backup at all.
+     */
+    fun enableBackup(folderUri: String) {
+        backupStore.enable(folderUri)
+        BackupWorker.schedule(appContext)
+        BackupWorker.runNow(appContext)
+    }
+
+    fun disableBackup() {
+        backupStore.disable()
+        BackupWorker.cancel(appContext)
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -714,6 +741,8 @@ class LinkViewModel(
                     providerStore = app.container.llmProviderStore,
                     onboardingStore = app.container.onboardingStore,
                     themeStore = app.container.themeStore,
+                    backupStore = app.container.backupStore,
+                    appContext = app.applicationContext,
                     aiService = app.container.aiService,
                     updateChecker = app.container.updateChecker,
                 )

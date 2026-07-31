@@ -5,6 +5,7 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.AppDatabase
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.scraper.LinkScraperService
+import dev.punit.tidylink.data.settings.BackupStore
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ThemeStore
@@ -29,6 +30,8 @@ class AppContainer(application: Application) {
     val onboardingStore by lazy { OnboardingStore(app.applicationContext) }
 
     val themeStore by lazy { ThemeStore(app.applicationContext) }
+
+    val backupStore by lazy { BackupStore(app.applicationContext) }
 
     val updateChecker by lazy { UpdateChecker(app.applicationContext) }
 
