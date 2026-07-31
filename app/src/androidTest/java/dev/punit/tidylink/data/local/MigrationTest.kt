@@ -200,6 +200,44 @@ class MigrationTest {
         assertEquals("a word only in the note must find the link", listOf("kot"), hits)
     }
 
+    /**
+     * v6 adds the trash table and touches nothing else - that's the payoff
+     * of trash being a separate table rather than a `deletedAt` column on
+     * `links`. If a future change to this migration starts modifying
+     * `links`, the FTS assertion here is what should catch it.
+     */
+    @Test
+    fun migrate_5_to_6_adds_the_trash_table_and_leaves_links_alone() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 5, true, *ALL_MIGRATIONS).close()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS)
+
+        assertEquals(
+            listOf("deletedAt", "id", "json"),
+            db.columnsOf("trashed_links").sorted(),
+        )
+        assertEquals("the existing link is untouched", listOf("kot"), db.query("SELECT id FROM links").ids())
+        // Nothing recreated links_fts, so the index still resolves.
+        val hits = db.query(
+            "SELECT links.title FROM links JOIN links_fts ON links.rowid = links_fts.rowid " +
+                "WHERE links_fts MATCH 'kotl*'"
+        ).use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+        assertEquals(listOf("Kotlin Compose Guide"), hits)
+    }
+
+    /** A fresh v4 install must reach v6 in one go, not just v4 -> v5. */
+    @Test
+    fun migrate_4_to_6_runs_both_new_migrations_in_sequence() {
+        createV4Database()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS)
+
+        assertTrue("isRead should exist at v6", "isRead" in db.columnsOf("links"))
+        assertTrue("note should exist at v6", "note" in db.columnsOf("links"))
+        assertTrue("trash table should exist at v6", db.columnsOf("trashed_links").isNotEmpty())
+    }
+
     /** Search must still work through a live Room instance after migrating. */
     @Test
     fun database_opens_and_searches_after_migrating_from_v1() {
