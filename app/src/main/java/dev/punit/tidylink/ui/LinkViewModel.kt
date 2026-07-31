@@ -98,6 +98,8 @@ data class LinkUiState(
     val pendingEnrichment: Int = 0,
     /** Redundant copies waiting to be merged - shown in the Tools sheet. */
     val duplicateCount: Int = 0,
+    /** Whether the grid is filtered to links that haven't been opened. */
+    val unreadOnly: Boolean = false,
 ) {
     val isSelectionMode: Boolean get() = selectedIds.isNotEmpty()
 }
@@ -115,6 +117,7 @@ class LinkViewModel(
     private val searchQuery = MutableStateFlow("")
     private val selectedCategory = MutableStateFlow<String?>(null)
     private val selectedTag = MutableStateFlow<String?>(null)
+    private val unreadOnly = MutableStateFlow(false)
     private val sortOrder = MutableStateFlow(SortOrder.NEWEST)
     private val isProcessing = MutableStateFlow(false)
     private val isRefreshing = MutableStateFlow(false)
@@ -123,24 +126,27 @@ class LinkViewModel(
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val refreshingIds = MutableStateFlow<Set<String>>(emptySet())
 
-    /** The four inputs that decide which links the grid shows. */
+    /** The inputs that decide which links the grid shows. */
     private data class LibraryQuery(
         val search: String,
         val category: String?,
         val tag: String?,
         val sort: SortOrder,
+        val unreadOnly: Boolean,
     )
 
     /**
-     * Paged library: search (debounced), category filter, tag filter and
-     * sort all run in SQLite; Compose only ever holds the visible pages in
-     * memory, so a 10k-link library scrolls the same as a 100-link one.
+     * Paged library: search (debounced), category filter, tag filter,
+     * unread filter and sort all run in SQLite; Compose only ever holds the
+     * visible pages in memory, so a 10k-link library scrolls the same as a
+     * 100-link one.
      */
     val links: Flow<PagingData<LinkEntity>> = combine(
         searchQuery.debounce(250),
         selectedCategory,
         selectedTag,
         sortOrder,
+        unreadOnly,
         ::LibraryQuery,
     ).flatMapLatest { q ->
         Pager(
@@ -149,7 +155,9 @@ class LinkViewModel(
                 prefetchDistance = 90,
                 enablePlaceholders = false,
             ),
-            pagingSourceFactory = { repository.pagingSource(q.search, q.category, q.sort, q.tag) },
+            pagingSourceFactory = {
+                repository.pagingSource(q.search, q.category, q.sort, q.tag, q.unreadOnly)
+            },
         ).flow
     }.cachedIn(viewModelScope)
 
@@ -174,6 +182,7 @@ class LinkViewModel(
         val pendingEnrichment: Int = 0,
         val tags: List<TagCount> = emptyList(),
         val duplicateCount: Int = 0,
+        val unreadOnly: Boolean = false,
     )
 
     /** Bundle secondary state so each combine stays within 5 flows. */
@@ -190,6 +199,7 @@ class LinkViewModel(
         .combine(repository.duplicateCount()) { transient, dupes ->
             transient.copy(duplicateCount = dupes)
         }
+        .combine(unreadOnly) { transient, unread -> transient.copy(unreadOnly = unread) }
 
     val uiState: StateFlow<LinkUiState> = combine(
         repository.getCategories(),
@@ -213,6 +223,7 @@ class LinkViewModel(
             refreshingIds = transient.refreshingIds,
             pendingEnrichment = transient.pendingEnrichment,
             duplicateCount = transient.duplicateCount,
+            unreadOnly = transient.unreadOnly,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -237,6 +248,62 @@ class LinkViewModel(
     /** Pass null to clear. Composes with the category filter, doesn't replace it. */
     fun selectTag(tag: String?) {
         selectedTag.value = tag
+    }
+
+    fun setUnreadOnly(enabled: Boolean) {
+        unreadOnly.value = enabled
+    }
+
+    /**
+     * Called when the user actually opens a link. Read state that has to be
+     * maintained by hand doesn't get maintained, so this is the path that
+     * makes the unread filter mean anything.
+     */
+    fun markRead(link: LinkEntity) {
+        if (link.isRead) return
+        setReadState(link.id, true)
+    }
+
+    fun toggleRead(link: LinkEntity) {
+        setReadState(link.id, !link.isRead)
+    }
+
+    /**
+     * Not runCatching: that swallows CancellationException along with
+     * everything else, which is the pattern this codebase already had to
+     * fix once in the update-check paths.
+     */
+    private fun setReadState(id: String, isRead: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.setRead(id, isRead)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_read_state_failed)
+            }
+        }
+    }
+
+    /** Bulk "I'm done with these" for the current selection. */
+    fun markSelectedRead() {
+        val ids = selectedIds.value.toList()
+        if (ids.isEmpty()) return
+        selectedIds.value = emptySet()
+        viewModelScope.launch {
+            try {
+                repository.markRead(ids)
+                message.value = UiMessage.Plural(
+                    R.plurals.msg_marked_read,
+                    ids.size,
+                    listOf(ids.size),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_read_state_failed)
+            }
+        }
     }
 
     fun setSortOrder(order: SortOrder) {
@@ -265,11 +332,19 @@ class LinkViewModel(
     }
 
     /** Manual edit of a link's title / category / tags (comma-separated). */
-    fun editLink(link: LinkEntity, title: String, category: String, tagsText: String) {
+    fun editLink(
+        link: LinkEntity,
+        title: String,
+        category: String,
+        tagsText: String,
+        note: String,
+    ) {
         viewModelScope.launch {
             try {
                 val tags = tagsText.split(',').map { it.trim() }.filter { it.isNotBlank() }
-                repository.updateLinkDetails(link, title, category, tags)
+                repository.updateLinkDetails(link, title, category, tags, note)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message.value = UiMessage.Text(R.string.msg_edit_failed)
             }

@@ -103,6 +103,39 @@ class LinkQueryBuilderTest {
         assertEquals("%\"jvm\"%", args[2])
     }
 
+    /**
+     * The unread predicate is a constant, so it must bind no argument -
+     * binding one would shift the position of every argument added before
+     * it and silently filter by the wrong value.
+     */
+    @Test
+    fun `unread filter adds no bound argument`() {
+        val query = LinkQueryBuilder.build(
+            "kotl",
+            category = "Dev",
+            sort = SortOrder.NEWEST,
+            tag = "jvm",
+            unreadOnly = true,
+        )
+        assertTrue(query.sql.contains("links.isRead = 0"))
+        assertEquals(3, query.argCount)
+        assertEquals(listOf("kotl*", "Dev", "%\"jvm\"%"), boundArgs(query))
+    }
+
+    @Test
+    fun `unread filter is absent unless asked for`() {
+        assertFalse(
+            LinkQueryBuilder.build("", null, SortOrder.NEWEST).sql.contains("isRead"),
+        )
+    }
+
+    @Test
+    fun `unread filter works on its own without search or category`() {
+        val query = LinkQueryBuilder.build("", null, SortOrder.NEWEST, unreadOnly = true)
+        assertTrue(query.sql.contains("WHERE links.isRead = 0"))
+        assertEquals(0, query.argCount)
+    }
+
     @Test
     fun `no tag filter leaves the tags column out of the query entirely`() {
         val query = LinkQueryBuilder.build("", category = "Dev", sort = SortOrder.NEWEST)

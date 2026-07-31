@@ -13,8 +13,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -34,20 +37,26 @@ import dev.punit.tidylink.data.local.TagCount
 private const val MAX_VISIBLE_TAGS = 20
 
 /**
- * Tag filter as a scrolling row of chips, sitting under [CategoryTiles].
- * Chips rather than tiles on purpose: tags are a secondary, finer-grained
- * filter than categories, and there are many more of them.
+ * Secondary filters as one scrolling row of chips, sitting under
+ * [CategoryTiles]: the unread toggle first, then tags.
  *
- * Composes with the category filter instead of replacing it - a link has
- * exactly one category but many tags, so "Dev + #kotlin" is a useful
- * narrowing rather than a contradiction.
+ * Chips rather than tiles on purpose - these are finer-grained than
+ * categories and there are many more of them. Both live in a single row so
+ * the header doesn't grow a third band; the header scrolls away with the
+ * grid, and every extra row is content pushed off the first screen.
+ *
+ * Every filter here composes with the category filter instead of replacing
+ * it: a link has exactly one category but many tags, so "Dev + #kotlin +
+ * unread" is a narrowing, not a contradiction.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-internal fun TagRow(
+internal fun FilterRow(
     tags: List<TagCount>,
     selected: String?,
+    unreadOnly: Boolean,
     onSelect: (String?) -> Unit,
+    onUnreadOnlyChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showAllTags by rememberSaveable { mutableStateOf(false) }
@@ -60,6 +69,20 @@ internal fun TagRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
+        // First, and always present even in a library with no tags at all -
+        // it's the filter that turns a growing pile into a queue.
+        item {
+            FilterChip(
+                selected = unreadOnly,
+                onClick = { onUnreadOnlyChange(!unreadOnly) },
+                label = { Text(stringResource(R.string.chip_unread)) },
+                leadingIcon = if (unreadOnly) {
+                    { Icon(Icons.Default.Check, contentDescription = null) }
+                } else {
+                    null
+                },
+            )
+        }
         // Keep the active filter visible even when it isn't a top tag -
         // otherwise selecting a rare tag from the sheet hides the only
         // control that can clear it.

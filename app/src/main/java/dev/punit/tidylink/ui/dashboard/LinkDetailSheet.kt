@@ -33,6 +33,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -46,6 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -83,6 +86,7 @@ internal fun LinkDetailSheet(
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
+    onToggleRead: () -> Unit,
     onSelectTag: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -185,6 +189,34 @@ internal fun LinkDetailSheet(
                 fontWeight = FontWeight.SemiBold,
             )
 
+            // The user's own words go ABOVE the machine's, in a tinted card
+            // with a heading. Everything else on this sheet was written by
+            // the page or the LLM, so the note has to be unmistakably
+            // theirs - dropping it into the same run of grey body text
+            // would bury the one part they wrote.
+            if (link.note.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = stringResource(R.string.detail_note_heading),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = link.note,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
+
             if (link.aiSummary.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -269,6 +301,26 @@ internal fun LinkDetailSheet(
                             if (link.pinned) R.string.action_unpin else R.string.action_pin
                         ),
                         tint = if (link.pinned) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                // Opening a link marks it read on its own; this is the
+                // escape hatch for "opened it, didn't actually deal with
+                // it" and for marking something done without opening it.
+                IconButton(onClick = onToggleRead) {
+                    Icon(
+                        if (link.isRead) Icons.Default.CheckCircle else Icons.Default.Check,
+                        contentDescription = stringResource(
+                            if (link.isRead) {
+                                R.string.action_mark_unread
+                            } else {
+                                R.string.action_mark_read
+                            }
+                        ),
+                        tint = if (link.isRead) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant

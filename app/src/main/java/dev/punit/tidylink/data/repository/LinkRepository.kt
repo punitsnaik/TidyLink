@@ -130,8 +130,11 @@ class LinkRepository(
         category: String?,
         sort: SortOrder,
         tag: String? = null,
+        unreadOnly: Boolean = false,
     ): PagingSource<Int, LinkEntity> =
-        linkDao.pagingSource(LinkQueryBuilder.build(searchQuery, category, sort, tag))
+        linkDao.pagingSource(
+            LinkQueryBuilder.build(searchQuery, category, sort, tag, unreadOnly)
+        )
 
     fun getCategories(): Flow<List<CategoryCount>> = linkDao.getCategories()
 
@@ -198,6 +201,7 @@ class LinkRepository(
         title: String,
         category: String,
         tags: List<String>,
+        note: String = link.note,
     ): LinkEntity {
         val updated = link.copy(
             title = title.trim().ifBlank { link.title },
@@ -207,6 +211,9 @@ class LinkRepository(
             tags = tags.map { it.trim().removePrefix("#").lowercase() }
                 .filter { it.isNotBlank() }
                 .distinct(),
+            // Only trimmed, never blank-guarded: clearing a note is a
+            // legitimate edit, unlike clearing the title.
+            note = note.trim(),
         )
         linkDao.upsert(updated)
         return updated
@@ -220,6 +227,10 @@ class LinkRepository(
     }
 
     suspend fun setPinned(id: String, pinned: Boolean) = linkDao.setPinned(id, pinned)
+
+    suspend fun setRead(id: String, isRead: Boolean) = linkDao.setRead(id, isRead)
+
+    suspend fun markRead(ids: List<String>) = linkDao.markRead(ids)
 
     /**
      * One-time upgrade helper (run at app start): fills the indexed
