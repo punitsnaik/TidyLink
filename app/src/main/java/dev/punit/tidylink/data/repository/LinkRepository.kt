@@ -561,8 +561,6 @@ class LinkRepository(
         }
     }
 
-    /** Returns the number of imported links, or -1 if the JSON was invalid. */
-    @OptIn(ExperimentalSerializationApi::class)
     /**
      * Imports a Netscape bookmarks export (Chrome/Firefox/Safari "export
      * bookmarks"). Rows land raw and immediately - browser title and URL
@@ -632,7 +630,7 @@ class LinkRepository(
             linkDao.upsertAll(rows)
             // Survives the user leaving the app, Doze and process death -
             // which a ViewModel-scoped loop over 400 links would not.
-            EnrichmentSweepWorker.enqueue(context)
+            EnrichmentSweepWorker.enqueue(appContext)
         }
         return BookmarkImportSummary(imported = rows.size, skipped = skipped)
     }
@@ -659,6 +657,8 @@ class LinkRepository(
         return out.toString(Charsets.UTF_8.name())
     }
 
+    /** Returns the number of imported links, or -1 if the JSON was invalid. */
+    @OptIn(ExperimentalSerializationApi::class)
     suspend fun importLinks(stream: InputStream): Int = try {
         val links = withContext(Dispatchers.IO) {
             json.decodeFromStream<List<LinkEntity>>(stream)
