@@ -129,7 +129,8 @@ internal fun LinksTab(
                 text = stringResource(
                     if (query.isNotBlank() ||
                         uiState.selectedCategory != null ||
-                        uiState.selectedTag != null
+                        uiState.selectedTag != null ||
+                        uiState.unreadOnly
                     ) {
                         R.string.empty_filtered
                     } else {
@@ -263,13 +264,21 @@ private fun LinksHeader(
             )
         }
 
-        // Hidden entirely until something in the library actually carries a
-        // tag, so a fresh install doesn't show an empty row.
-        if (uiState.tags.isNotEmpty()) {
-            TagRow(
+        // Hidden only on a genuinely empty library - once links exist the
+        // unread chip is worth showing even before anything has tags. Held
+        // open while a filter is active, or the row that hides the grid's
+        // contents would vanish along with them.
+        val hasFilterableContent = lazyLinks.itemCount > 0 ||
+            uiState.tags.isNotEmpty() ||
+            uiState.unreadOnly ||
+            uiState.selectedTag != null
+        if (hasFilterableContent) {
+            FilterRow(
                 tags = uiState.tags,
                 selected = uiState.selectedTag,
+                unreadOnly = uiState.unreadOnly,
                 onSelect = viewModel::selectTag,
+                onUnreadOnlyChange = viewModel::setUnreadOnly,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }
