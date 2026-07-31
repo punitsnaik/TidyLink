@@ -37,6 +37,7 @@ object LinkQueryBuilder {
         category: String?,
         sort: SortOrder,
         tag: String? = null,
+        unreadOnly: Boolean = false,
     ): SimpleSQLiteQuery {
         val fts = sanitizeFtsQuery(searchQuery)
         val args = mutableListOf<Any>()
@@ -63,6 +64,10 @@ object LinkQueryBuilder {
             conditions += "links.tags LIKE ? ESCAPE '\\'"
             args += "%\"${escapeLike(tag)}\"%"
         }
+
+        // No argument: a constant predicate binds nothing, and adding one
+        // would shift every later argument's position.
+        if (unreadOnly) conditions += "links.isRead = 0"
 
         val sql = buildString {
             append(from)

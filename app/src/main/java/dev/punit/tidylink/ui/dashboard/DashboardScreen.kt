@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -206,6 +207,14 @@ fun DashboardScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = viewModel::markSelectedRead) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = stringResource(
+                                    R.string.action_mark_selected_read
+                                ),
+                            )
+                        }
                         IconButton(onClick = { showMoveDialog = true }) {
                             Icon(
                                 Icons.Default.Edit,
@@ -414,8 +423,8 @@ fun DashboardScreen(
         editingLink?.let { link ->
             EditLinkDialog(
                 link = link,
-                onConfirm = { title, category, tags ->
-                    viewModel.editLink(link, title, category, tags)
+                onConfirm = { title, category, tags, note ->
+                    viewModel.editLink(link, title, category, tags, note)
                     editingLinkId = null
                 },
                 onDismiss = { editingLinkId = null },
@@ -499,6 +508,10 @@ fun DashboardScreen(
                 onDismiss = { selectedLinkId = null },
                 onOpen = {
                     selectedLinkId = null
+                    // Marked read here rather than by a separate gesture:
+                    // read state that has to be maintained by hand doesn't
+                    // get maintained, and the unread filter would rot.
+                    viewModel.markRead(link)
                     openLink(context, link.url)
                 },
                 // Keep the sheet open: updated details animate in place.
@@ -509,6 +522,7 @@ fun DashboardScreen(
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
+                onToggleRead = { viewModel.toggleRead(link) },
                 // Dismiss so the filtered library is actually visible -
                 // leaving the sheet up would hide the result of the tap.
                 // The sheet is reachable from Pinned too, and the tag

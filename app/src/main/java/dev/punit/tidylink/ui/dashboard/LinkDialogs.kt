@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
@@ -33,22 +35,25 @@ import dev.punit.tidylink.data.UrlCanonicalizer
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 
-/** Manual edit of a link's title, category, and tags. */
+/** Manual edit of a link's title, category, tags, and personal note. */
 @Composable
 internal fun EditLinkDialog(
     link: LinkEntity,
-    onConfirm: (title: String, category: String, tags: String) -> Unit,
+    onConfirm: (title: String, category: String, tags: String, note: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var title by rememberSaveable(link.id) { mutableStateOf(link.title) }
     var category by rememberSaveable(link.id) { mutableStateOf(link.category) }
     var tags by rememberSaveable(link.id) { mutableStateOf(link.tags.joinToString(", ")) }
+    var note by rememberSaveable(link.id) { mutableStateOf(link.note) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.dialog_edit_title)) },
         text = {
-            Column {
+            // Scrollable: four fields (one of them multi-line) don't fit an
+            // AlertDialog on a short screen or with a keyboard up.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -70,11 +75,20 @@ internal fun EditLinkDialog(
                     label = { Text(stringResource(R.string.field_tags)) },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text(stringResource(R.string.field_note)) },
+                    placeholder = { Text(stringResource(R.string.field_note_hint)) },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(title, category, tags) },
+                onClick = { onConfirm(title, category, tags, note) },
                 enabled = title.isNotBlank(),
             ) { Text(stringResource(R.string.action_save)) }
         },
