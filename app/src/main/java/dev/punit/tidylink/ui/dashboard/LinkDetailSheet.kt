@@ -15,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -82,6 +83,7 @@ internal fun LinkDetailSheet(
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
+    onSelectTag: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val source = linkSourceOf(link.url)
@@ -215,7 +217,19 @@ internal fun LinkDetailSheet(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    link.tags.forEach { tag -> TagChip(tag) }
+                    // Tapping a tag filters the library by it - the sheet
+                    // is where tags are actually legible, so it's the
+                    // natural entry point into the header's tag row.
+                    link.tags.forEach { tag ->
+                        TagChip(
+                            tag,
+                            // clip before clickable so the ripple follows the
+                            // chip's rounded background instead of squaring it off.
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onSelectTag(tag) },
+                        )
+                    }
                 }
             }
 
