@@ -89,6 +89,8 @@
     <string name="settings_export_subtitle">Save a backup of all your links</string>
     <string name="settings_import_json_title">Import links (JSON)</string>
     <string name="settings_import_json_subtitle">Restore links from a backup file</string>
+    <string name="settings_import_bookmarks_title">Import browser bookmarks</string>
+    <string name="settings_import_bookmarks_subtitle">Bring in an HTML export from Chrome, Firefox or Safari</string>
 
     <!-- Tools sheet: library maintenance, reached from the Links header. -->
     <string name="sheet_tools_title">Tools</string>
@@ -147,6 +149,12 @@
     <string name="field_title">Title</string>
     <string name="field_category">Category</string>
     <string name="field_tags">Tags (comma-separated)</string>
+    <string name="dialog_import_bookmarks_title">Import browser bookmarks</string>
+    <string name="dialog_import_bookmarks_body">Export your bookmarks from Chrome, Firefox or Safari as an HTML file, then pick it on the next screen.</string>
+    <string name="dialog_import_bookmarks_use_folders">Use bookmark folders as categories</string>
+    <string name="dialog_import_bookmarks_folders_note">Keeps the folders you already made. Links outside a folder are categorized by AI.</string>
+    <string name="dialog_import_bookmarks_ai_note">Every imported link will be categorized by AI. On a large export that\'s a lot of requests against your own API key.</string>
+    <string name="dialog_import_bookmarks_choose">Choose file</string>
     <string name="field_note">Your note</string>
     <string name="field_note_hint">Why you saved this</string>
     <string name="detail_note_heading">Your note</string>
@@ -211,6 +219,13 @@
         <item quantity="other">Marked %d links as read</item>
     </plurals>
     <string name="msg_read_state_failed">Couldn\'t update read state</string>
+    <plurals name="msg_imported_bookmarks">
+        <item quantity="one">Imported %1$d bookmark</item>
+        <item quantity="other">Imported %1$d bookmarks</item>
+    </plurals>
+    <string name="msg_imported_bookmarks_with_skips">Imported %1$d bookmarks, skipped %2$d already saved</string>
+    <string name="msg_imported_bookmarks_none">No new bookmarks found in that file</string>
+    <string name="msg_import_too_large">That file is too large to import</string>
 
     <!-- Share receiver -->
     <string name="share_no_link_found">No link found in shared text</string>

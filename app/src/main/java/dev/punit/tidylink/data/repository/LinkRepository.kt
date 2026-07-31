@@ -11,6 +11,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dev.punit.tidylink.data.UrlCanonicalizer
 import dev.punit.tidylink.data.ai.AiCategorizationService
+import dev.punit.tidylink.data.importer.BookmarkHtmlParser
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkDao
 import dev.punit.tidylink.data.local.LinkEntity
@@ -57,6 +58,12 @@ data class RefreshSummary(
 
 /** Result of a category tidy-up pass. */
 data class TidySummary(val merged: Int, val aiUnavailable: Boolean)
+
+/** Result of importing a browser bookmarks export. */
+data class BookmarkImportSummary(val imported: Int, val skipped: Int)
+
+/** The chosen file was too large to read safely - see MAX_IMPORT_BYTES. */
+class ImportTooLargeException : Exception()
 
 /**
  * Collapses one group of duplicate rows into the single row that should
@@ -556,6 +563,102 @@ class LinkRepository(
 
     /** Returns the number of imported links, or -1 if the JSON was invalid. */
     @OptIn(ExperimentalSerializationApi::class)
+    /**
+     * Imports a Netscape bookmarks export (Chrome/Firefox/Safari "export
+     * bookmarks"). Rows land raw and immediately - browser title and URL
+     * only - and the existing enrichment sweep scrapes and classifies them
+     * in the background, exactly as it does for links saved by hand. A few
+     * hundred rows appearing instantly is the point; waiting on a few
+     * hundred network round trips before showing anything is not.
+     *
+     * [useFoldersAsCategories] maps the deepest enclosing bookmark folder
+     * onto the category. Those rows skip AI classification entirely, which
+     * is both cheaper and more faithful - it keeps organisation the user
+     * already did by hand.
+     */
+    suspend fun importBookmarks(
+        stream: InputStream,
+        useFoldersAsCategories: Boolean,
+    ): BookmarkImportSummary {
+        val html = withContext(Dispatchers.IO) { stream.readTextCapped(MAX_IMPORT_BYTES) }
+            ?: throw ImportTooLargeException()
+
+        val parsed = BookmarkHtmlParser.parse(html)
+        if (parsed.isEmpty()) return BookmarkImportSummary(imported = 0, skipped = 0)
+
+        // One query rather than one per bookmark. Also seeds the set that
+        // dedupes the file against ITSELF - browser exports routinely list
+        // the same page in two folders.
+        val seenKeys = linkDao.getAllDedupeKeys().toMutableSet()
+        val knownCategories = allCategoryNames().toMutableList()
+        val now = System.currentTimeMillis()
+        var skipped = 0
+
+        val rows = parsed.mapNotNull { bookmark ->
+            val url = UrlCanonicalizer.cleanUrl(bookmark.url)
+            val key = UrlCanonicalizer.dedupeKey(url)
+            if (!seenKeys.add(key)) {
+                skipped++
+                return@mapNotNull null
+            }
+            val category = bookmark.folder
+                ?.takeIf { useFoldersAsCategories && it.isNotBlank() }
+                ?.let { folder ->
+                    resolveCategory(folder, knownCategories).also { resolved ->
+                        // Fold later folders onto categories this same
+                        // import already created, not just onto pre-existing
+                        // ones - otherwise "Dev" and "dev" both survive.
+                        if (resolved !in knownCategories) knownCategories += resolved
+                    }
+                }
+                ?: FALLBACK_CATEGORY
+            LinkEntity(
+                url = url,
+                title = bookmark.title.ifBlank { UrlCanonicalizer.placeholderTitle(url) },
+                description = "",
+                imageUrl = null,
+                category = category,
+                tags = emptyList(),
+                aiSummary = "",
+                // Keep the bookmark's real age when the export carries one,
+                // so an import doesn't dump a decade of links onto today and
+                // bury everything the user actually saved recently.
+                timestamp = bookmark.addedAtMillis ?: now,
+                dedupeKey = key,
+            )
+        }
+
+        if (rows.isNotEmpty()) {
+            linkDao.upsertAll(rows)
+            // Survives the user leaving the app, Doze and process death -
+            // which a ViewModel-scoped loop over 400 links would not.
+            EnrichmentSweepWorker.enqueue(context)
+        }
+        return BookmarkImportSummary(imported = rows.size, skipped = skipped)
+    }
+
+    /**
+     * Reads the whole stream as UTF-8, or null if it exceeds [maxBytes].
+     *
+     * The cap is not only about memory. [BookmarkHtmlParser] matches
+     * `<A ...>...</A>` with a lazy group, which degrades to O(n^2) on a file
+     * full of unclosed anchors, so bounding the input also bounds the worst
+     * case parse time on a hostile or corrupt file.
+     */
+    private fun InputStream.readTextCapped(maxBytes: Int): String? {
+        val out = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val read = read(chunk)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) return null
+            out.write(chunk, 0, read)
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
+
     suspend fun importLinks(stream: InputStream): Int = try {
         val links = withContext(Dispatchers.IO) {
             json.decodeFromStream<List<LinkEntity>>(stream)
@@ -655,5 +758,13 @@ class LinkRepository(
 
         /** How many existing categories to include in classification prompts. */
         private const val MAX_PROMPT_CATEGORIES = 30
+
+        /**
+         * Ceiling on an imported bookmarks file. A real export of several
+         * thousand bookmarks is well under a megabyte; 8 MB is generous
+         * enough to never reject a genuine file while still refusing
+         * something that would exhaust memory or stall the parser.
+         */
+        private const val MAX_IMPORT_BYTES = 8 * 1024 * 1024
     }
 }

@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +83,7 @@ fun DashboardScreen(
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
     var showTidyConfirm by rememberSaveable { mutableStateOf(false) }
     var showDuplicatesConfirm by rememberSaveable { mutableStateOf(false) }
+    var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
@@ -185,6 +187,45 @@ fun DashboardScreen(
                 } else {
                     resources.getString(R.string.msg_import_invalid)
                 }
+            } catch (e: Exception) {
+                resources.getString(R.string.msg_import_failed)
+            }
+            snackbarHostState.showSnackbar(text)
+        }
+    }
+
+    // Bookmark import: the folder choice is made in a dialog BEFORE the
+    // picker opens, so this launcher only has to carry the answer.
+    var importFoldersAsCategories by rememberSaveable { mutableStateOf(true) }
+    val bookmarkImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = try {
+                val summary = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        viewModel.importBookmarks(stream, importFoldersAsCategories)
+                    }
+                }
+                when {
+                    summary == null -> resources.getString(R.string.msg_import_invalid)
+                    summary.imported == 0 -> resources.getString(
+                        R.string.msg_imported_bookmarks_none
+                    )
+                    summary.skipped > 0 -> resources.getString(
+                        R.string.msg_imported_bookmarks_with_skips,
+                        summary.imported,
+                        summary.skipped,
+                    )
+                    else -> resources.getQuantityString(
+                        R.plurals.msg_imported_bookmarks,
+                        summary.imported,
+                        summary.imported,
+                    )
+                }
+            } catch (e: ImportTooLargeException) {
+                resources.getString(R.string.msg_import_too_large)
             } catch (e: Exception) {
                 resources.getString(R.string.msg_import_failed)
             }
@@ -307,6 +348,7 @@ fun DashboardScreen(
                 onThemeClick = { showThemeSheet = true },
                 onAiProviders = { showAiProviders = true },
                 onExport = { exportLauncher.launch("tidylink-backup.json") },
+                onImportBookmarks = { showBookmarkImport = true },
                 onImportJson = {
                     importLauncher.launch(
                         arrayOf("application/json", "application/octet-stream")
@@ -383,6 +425,20 @@ fun DashboardScreen(
                     Text(stringResource(R.string.action_cancel))
                 }
             },
+        )
+    }
+
+    if (showBookmarkImport) {
+        BookmarkImportDialog(
+            onConfirm = { useFolders ->
+                showBookmarkImport = false
+                importFoldersAsCategories = useFolders
+                // Some file providers mislabel exported bookmarks as
+                // application/octet-stream or text/plain, so the filter
+                // can't be text/html alone or the file is greyed out.
+                bookmarkImportLauncher.launch(arrayOf("text/html", "text/plain", "*/*"))
+            },
+            onDismiss = { showBookmarkImport = false },
         )
     }
 
