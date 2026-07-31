@@ -6,6 +6,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -34,9 +37,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.settings.BackupState
 import dev.punit.tidylink.data.settings.ThemeMode
 import dev.punit.tidylink.ui.UpdateState
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * Settings: things you CONFIGURE, in four groups - Appearance, AI, Backup, About.
@@ -56,6 +62,9 @@ internal fun SettingsTab(
     onAiProviders: () -> Unit,
     onExport: () -> Unit,
     onImportJson: () -> Unit,
+    onImportBookmarks: () -> Unit,
+    backupState: BackupState,
+    onToggleAutoBackup: () -> Unit,
     onShowIntro: () -> Unit,
     onOpenRepo: () -> Unit,
     updateState: UpdateState,
@@ -109,6 +118,24 @@ internal fun SettingsTab(
                 title = stringResource(R.string.settings_import_json_title),
                 subtitle = stringResource(R.string.settings_import_json_subtitle),
                 onClick = onImportJson,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_import_bookmarks_title),
+                subtitle = stringResource(R.string.settings_import_bookmarks_subtitle),
+                onClick = onImportBookmarks,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_auto_backup_title),
+                subtitle = autoBackupSubtitle(backupState),
+                onClick = onToggleAutoBackup,
+                trailing = {
+                    Switch(
+                        checked = backupState.enabled,
+                        onCheckedChange = { onToggleAutoBackup() },
+                    )
+                },
             )
         }
 
@@ -244,24 +271,45 @@ private fun SettingsItem(
     subtitle: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
-    Column(
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        trailing?.invoke()
     }
+}
+
+/**
+ * Never conflates "hasn't run yet" with "broke". A backup that silently
+ * stopped working is worse than none, because the user believes they have
+ * one - so a failure is stated outright rather than shown as a stale date.
+ */
+@Composable
+private fun autoBackupSubtitle(state: BackupState): String = when {
+    !state.enabled -> stringResource(R.string.settings_auto_backup_off)
+    state.lastFailed -> stringResource(R.string.settings_auto_backup_failed)
+    state.lastSuccessAt > 0L -> stringResource(
+        R.string.settings_auto_backup_last,
+        DateFormat.getDateInstance().format(Date(state.lastSuccessAt)),
+    )
+    else -> stringResource(R.string.settings_auto_backup_pending)
 }
 
 /**

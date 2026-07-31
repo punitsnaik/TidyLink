@@ -11,11 +11,14 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dev.punit.tidylink.data.UrlCanonicalizer
 import dev.punit.tidylink.data.ai.AiCategorizationService
+import dev.punit.tidylink.data.importer.BookmarkHtmlParser
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkDao
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.LinkQueryBuilder
 import dev.punit.tidylink.data.local.SortOrder
+import dev.punit.tidylink.data.local.TagCount
+import dev.punit.tidylink.data.local.TrashedLinkEntity
 import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.scraper.ScrapedData
 import dev.punit.tidylink.data.work.ClassificationRetryWorker
@@ -26,12 +29,16 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
@@ -55,6 +62,56 @@ data class RefreshSummary(
 
 /** Result of a category tidy-up pass. */
 data class TidySummary(val merged: Int, val aiUnavailable: Boolean)
+
+/** Result of importing a browser bookmarks export. */
+data class BookmarkImportSummary(val imported: Int, val skipped: Int)
+
+/** A trashed link, decoded back into an entity, with when it was deleted. */
+data class TrashedLink(val link: LinkEntity, val deletedAt: Long)
+
+/** The chosen file was too large to read safely - see MAX_IMPORT_BYTES. */
+class ImportTooLargeException : Exception()
+
+/**
+ * Collapses one group of duplicate rows into the single row that should
+ * survive, or null when the group holds nothing to merge.
+ *
+ * Deliberately a merge and not a "keep one, drop the rest": the duplicates
+ * are the same page saved at different times, so one copy may have the
+ * image, another the AI summary, and a third the pin. Picking a winner
+ * outright would silently throw away whichever field the loser held.
+ *
+ * Pure and file-level rather than a method so the rule can be tested
+ * directly - it decides which rows get deleted, which is not something to
+ * verify only by running it against a real library.
+ */
+internal fun mergeDuplicateGroup(group: List<LinkEntity>): LinkEntity? {
+    if (group.size <= 1) return null
+    // Richest row wins: a real category beats the fallback, an image beats
+    // none, a summary beats none. Ties go to the earliest save.
+    val best = group.maxWithOrNull(
+        compareBy(
+            { it.category != LinkRepository.FALLBACK_CATEGORY },
+            { it.imageUrl != null },
+            { it.aiSummary.isNotBlank() },
+            { -it.timestamp },
+        )
+    ) ?: return null
+    return best.copy(
+        imageUrl = best.imageUrl ?: group.firstNotNullOfOrNull { it.imageUrl },
+        description = best.description.ifBlank {
+            group.firstOrNull { it.description.isNotBlank() }?.description.orEmpty()
+        },
+        aiSummary = best.aiSummary.ifBlank {
+            group.firstOrNull { it.aiSummary.isNotBlank() }?.aiSummary.orEmpty()
+        },
+        // The link has been in the library since its earliest save, and a
+        // pin on any copy is an explicit user action - neither survives
+        // "keep the newest".
+        timestamp = group.minOf { it.timestamp },
+        pinned = group.any { it.pinned },
+    ).let { if (it.dedupeKey.isNotBlank()) it else it.copy(dedupeKey = UrlCanonicalizer.dedupeKey(it.url)) }
+}
 
 class LinkRepository(
     private val linkDao: LinkDao,
@@ -86,16 +143,55 @@ class LinkRepository(
         searchQuery: String,
         category: String?,
         sort: SortOrder,
+        tag: String? = null,
+        unreadOnly: Boolean = false,
     ): PagingSource<Int, LinkEntity> =
-        linkDao.pagingSource(LinkQueryBuilder.build(searchQuery, category, sort))
+        linkDao.pagingSource(
+            LinkQueryBuilder.build(searchQuery, category, sort, tag, unreadOnly)
+        )
 
     fun getCategories(): Flow<List<CategoryCount>> = linkDao.getCategories()
+
+    /**
+     * Tags across the library, busiest first, for the tag filter row.
+     *
+     * ponytail: counted in Kotlin over every row's tag array, so this is
+     * O(n) on each library change. Fine at the scale this app runs at and
+     * it costs no migration. Upgrade path if a library ever gets big
+     * enough to feel it: a normalized `tags` table with a GROUP BY.
+     */
+    fun getTagCounts(): Flow<List<TagCount>> = linkDao.observeTags().map { rows ->
+        rows.flatMap { it.tags }
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            // Tags arrive from both the scraper and the LLM, so the same
+            // tag shows up in mixed case. Fold those together and label the
+            // chip with the most common spelling. SQLite's LIKE is
+            // ASCII-case-insensitive, so one chip correctly matches every
+            // spelling it was folded from.
+            .groupBy { it.lowercase() }
+            .map { (_, spellings) ->
+                TagCount(
+                    tag = spellings.groupingBy { it }.eachCount().maxByOrNull { it.value }!!.key,
+                    count = spellings.size,
+                )
+            }
+            .sortedWith(compareByDescending<TagCount> { it.count }.thenBy { it.tag.lowercase() })
+    }.flowOn(Dispatchers.Default)
+    // flowOn is load-bearing, not decoration. Room's own flow carries an
+    // internal flowOn(queryDispatcher), but a .map applied DOWNSTREAM of
+    // that runs in the collector's context - here Dispatchers.Main, via
+    // stateIn(viewModelScope). Without this every write to `links` re-folds
+    // every tag array in the library on the UI thread.
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     fun pinnedPagingSource(): PagingSource<Int, LinkEntity> = linkDao.pinnedPagingSource()
 
     /** Links still awaiting their first scrape - drives the progress banner. */
     fun pendingEnrichmentCount(): Flow<Int> = linkDao.countNeverScraped()
+
+    /** Redundant copies in the library - drives the Tools sheet subtitle. */
+    fun duplicateCount(): Flow<Int> = linkDao.countDuplicates()
 
     /**
      * True when links are still waiting for their first scrape - checked at
@@ -110,13 +206,88 @@ class LinkRepository(
 
     suspend fun getLinksByIds(ids: List<String>): List<LinkEntity> = linkDao.getByIds(ids)
 
-    suspend fun deleteLink(id: String) = linkDao.delete(id)
+    // --- Trash ---------------------------------------------------------------
 
-    suspend fun deleteLinks(ids: List<String>) = linkDao.deleteByIds(ids)
+    /**
+     * Soft-deletes: rows leave `links` and land in `trashed_links` as
+     * serialized JSON, in one transaction.
+     *
+     * Everything that reads the library therefore excludes trash without
+     * asking - search, category tiles, tag counts, export, backup and the
+     * enrichment sweep all query `links` and simply cannot see these rows.
+     */
+    suspend fun moveToTrash(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val links = linkDao.getByIds(ids)
+        if (links.isEmpty()) return
+        val now = System.currentTimeMillis()
+        linkDao.moveToTrash(
+            rows = links.map {
+                TrashedLinkEntity(id = it.id, json = json.encodeToString(it), deletedAt = now)
+            },
+            ids = links.map { it.id },
+        )
+    }
 
-    /** Used by undo-delete: puts previously deleted entities back. */
-    suspend fun restoreLinks(links: List<LinkEntity>) =
-        linkDao.upsertAll(links.map { it.withDedupeKey() })
+    /**
+     * The ONE restore path - the undo snackbar and the trash sheet both
+     * come through here, so there is no second version to drift out of step.
+     *
+     * A row that fails to decode is dropped rather than aborting the whole
+     * restore: one corrupt entry must not make the other forty-nine
+     * unrecoverable.
+     */
+    suspend fun restoreFromTrash(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        val trashed = linkDao.getTrashedByIds(ids)
+        val links = trashed.mapNotNull { row ->
+            runCatching { json.decodeFromString<LinkEntity>(row.json) }.getOrNull()
+        }
+        if (links.isEmpty()) return 0
+        linkDao.restoreFromTrash(links.map { it.withDedupeKey() }, trashed.map { it.id })
+        return links.size
+    }
+
+    /**
+     * Trash contents, already decoded. Decoding happens off the main thread
+     * for the same reason [getTagCounts] does: a `.map` downstream of
+     * Room's flow runs in the COLLECTOR's context, and JSON-parsing a few
+     * hundred rows there would land on the UI thread.
+     */
+    fun observeTrash(): Flow<List<TrashedLink>> = linkDao.observeTrash()
+        .map { rows ->
+            rows.mapNotNull { row ->
+                decodeTrashed(row)?.let { TrashedLink(it, row.deletedAt) }
+            }
+        }
+        .flowOn(Dispatchers.Default)
+
+    fun trashCount(): Flow<Int> = linkDao.countTrashed()
+
+    suspend fun deleteFromTrashForever(ids: List<String>) = linkDao.deleteTrashed(ids)
+
+    suspend fun emptyTrash() = linkDao.emptyTrash()
+
+    /** Decodes a trashed row for display; null if it can't be read. */
+    fun decodeTrashed(row: TrashedLinkEntity): LinkEntity? =
+        runCatching { json.decodeFromString<LinkEntity>(row.json) }.getOrNull()
+
+    /**
+     * Called once at app start, next to [backfillDedupeKeys]. A worker
+     * would be more machinery than a single DELETE justifies, and trash
+     * purged a few hours late harms nobody.
+     */
+    suspend fun purgeExpiredTrash() =
+        linkDao.purgeTrashOlderThan(System.currentTimeMillis() - TRASH_RETENTION_MS)
+
+    /**
+     * Deleting from the library means trashing it. Note this is NOT what
+     * duplicate merging does - see [mergeDuplicates], which still hard
+     * deletes on purpose.
+     */
+    suspend fun deleteLink(id: String) = moveToTrash(listOf(id))
+
+    suspend fun deleteLinks(ids: List<String>) = moveToTrash(ids)
 
     /** Manual edit from the UI: title / category / tags. */
     suspend fun updateLinkDetails(
@@ -124,6 +295,7 @@ class LinkRepository(
         title: String,
         category: String,
         tags: List<String>,
+        note: String = link.note,
     ): LinkEntity {
         val updated = link.copy(
             title = title.trim().ifBlank { link.title },
@@ -133,6 +305,9 @@ class LinkRepository(
             tags = tags.map { it.trim().removePrefix("#").lowercase() }
                 .filter { it.isNotBlank() }
                 .distinct(),
+            // Only trimmed, never blank-guarded: clearing a note is a
+            // legitimate edit, unlike clearing the title.
+            note = note.trim(),
         )
         linkDao.upsert(updated)
         return updated
@@ -146,6 +321,10 @@ class LinkRepository(
     }
 
     suspend fun setPinned(id: String, pinned: Boolean) = linkDao.setPinned(id, pinned)
+
+    suspend fun setRead(id: String, isRead: Boolean) = linkDao.setRead(id, isRead)
+
+    suspend fun markRead(ids: List<String>) = linkDao.markRead(ids)
 
     /**
      * One-time upgrade helper (run at app start): fills the indexed
@@ -372,32 +551,21 @@ class LinkRepository(
      * Merges rows that are the same page saved under URL variants (tracking
      * params, www/no-www, http/https). Keeps the richest row, fills any gaps
      * from the others, and deletes the rest.
+     *
+     * Returns how many rows were removed, so the Tools sheet can report the
+     * result of an explicit "merge duplicates" tap. Callers that run this as
+     * part of a wider sweep ignore it.
      */
-    private suspend fun mergeDuplicates() {
+    internal suspend fun mergeDuplicates(): Int {
+        var removed = 0
         linkDao.getAllOnce().groupBy { UrlCanonicalizer.dedupeKey(it.url) }.values.forEach { group ->
-            if (group.size <= 1) return@forEach
-            val best = group.maxWithOrNull(
-                compareBy(
-                    { it.category != FALLBACK_CATEGORY },
-                    { it.imageUrl != null },
-                    { it.aiSummary.isNotBlank() },
-                    { -it.timestamp }, // tie-break: prefer the earliest save
-                )
-            ) ?: return@forEach
-            val merged = best.copy(
-                imageUrl = best.imageUrl ?: group.firstNotNullOfOrNull { it.imageUrl },
-                description = best.description.ifBlank {
-                    group.firstOrNull { it.description.isNotBlank() }?.description.orEmpty()
-                },
-                aiSummary = best.aiSummary.ifBlank {
-                    group.firstOrNull { it.aiSummary.isNotBlank() }?.aiSummary.orEmpty()
-                },
-                timestamp = group.minOf { it.timestamp },
-                pinned = group.any { it.pinned },
-            ).withDedupeKey()
+            val merged = mergeDuplicateGroup(group) ?: return@forEach
             linkDao.upsert(merged)
-            linkDao.deleteByIds(group.filter { it.id != best.id }.map { it.id })
+            val doomed = group.filter { it.id != merged.id }.map { it.id }
+            linkDao.deleteByIds(doomed)
+            removed += doomed.size
         }
+        return removed
     }
 
     /**
@@ -478,6 +646,102 @@ class LinkRepository(
         withContext(Dispatchers.IO) {
             json.encodeToStream(links, stream)
         }
+    }
+
+    /**
+     * Imports a Netscape bookmarks export (Chrome/Firefox/Safari "export
+     * bookmarks"). Rows land raw and immediately - browser title and URL
+     * only - and the existing enrichment sweep scrapes and classifies them
+     * in the background, exactly as it does for links saved by hand. A few
+     * hundred rows appearing instantly is the point; waiting on a few
+     * hundred network round trips before showing anything is not.
+     *
+     * [useFoldersAsCategories] maps the deepest enclosing bookmark folder
+     * onto the category. Those rows skip AI classification entirely, which
+     * is both cheaper and more faithful - it keeps organisation the user
+     * already did by hand.
+     */
+    suspend fun importBookmarks(
+        stream: InputStream,
+        useFoldersAsCategories: Boolean,
+    ): BookmarkImportSummary {
+        val html = withContext(Dispatchers.IO) { stream.readTextCapped(MAX_IMPORT_BYTES) }
+            ?: throw ImportTooLargeException()
+
+        val parsed = BookmarkHtmlParser.parse(html)
+        if (parsed.isEmpty()) return BookmarkImportSummary(imported = 0, skipped = 0)
+
+        // One query rather than one per bookmark. Also seeds the set that
+        // dedupes the file against ITSELF - browser exports routinely list
+        // the same page in two folders.
+        val seenKeys = linkDao.getAllDedupeKeys().toMutableSet()
+        val knownCategories = allCategoryNames().toMutableList()
+        val now = System.currentTimeMillis()
+        var skipped = 0
+
+        val rows = parsed.mapNotNull { bookmark ->
+            val url = UrlCanonicalizer.cleanUrl(bookmark.url)
+            val key = UrlCanonicalizer.dedupeKey(url)
+            if (!seenKeys.add(key)) {
+                skipped++
+                return@mapNotNull null
+            }
+            val category = bookmark.folder
+                ?.takeIf { useFoldersAsCategories && it.isNotBlank() }
+                ?.let { folder ->
+                    resolveCategory(folder, knownCategories).also { resolved ->
+                        // Fold later folders onto categories this same
+                        // import already created, not just onto pre-existing
+                        // ones - otherwise "Dev" and "dev" both survive.
+                        if (resolved !in knownCategories) knownCategories += resolved
+                    }
+                }
+                ?: FALLBACK_CATEGORY
+            LinkEntity(
+                url = url,
+                title = bookmark.title.ifBlank { UrlCanonicalizer.placeholderTitle(url) },
+                description = "",
+                imageUrl = null,
+                category = category,
+                tags = emptyList(),
+                aiSummary = "",
+                // Keep the bookmark's real age when the export carries one,
+                // so an import doesn't dump a decade of links onto today and
+                // bury everything the user actually saved recently.
+                timestamp = bookmark.addedAtMillis ?: now,
+                dedupeKey = key,
+            )
+        }
+
+        if (rows.isNotEmpty()) {
+            linkDao.upsertAll(rows)
+            // Survives the user leaving the app, Doze and process death -
+            // which a ViewModel-scoped loop over 400 links would not.
+            EnrichmentSweepWorker.enqueue(appContext)
+        }
+        return BookmarkImportSummary(imported = rows.size, skipped = skipped)
+    }
+
+    /**
+     * Reads the whole stream as UTF-8, or null if it exceeds [maxBytes].
+     *
+     * The cap is not only about memory. [BookmarkHtmlParser] matches
+     * `<A ...>...</A>` with a lazy group, which degrades to O(n^2) on a file
+     * full of unclosed anchors, so bounding the input also bounds the worst
+     * case parse time on a hostile or corrupt file.
+     */
+    private fun InputStream.readTextCapped(maxBytes: Int): String? {
+        val out = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val read = read(chunk)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) return null
+            out.write(chunk, 0, read)
+        }
+        return out.toString(Charsets.UTF_8.name())
     }
 
     /** Returns the number of imported links, or -1 if the JSON was invalid. */
@@ -581,5 +845,21 @@ class LinkRepository(
 
         /** How many existing categories to include in classification prompts. */
         private const val MAX_PROMPT_CATEGORIES = 30
+
+        /**
+         * Ceiling on an imported bookmarks file. A real export of several
+         * thousand bookmarks is well under a megabyte; 8 MB is generous
+         * enough to never reject a genuine file while still refusing
+         * something that would exhaust memory or stall the parser.
+         */
+        private const val MAX_IMPORT_BYTES = 8 * 1024 * 1024
+
+        /**
+         * How long a deleted link stays recoverable. Internal, not private,
+         * so the trash sheet counts down against this exact value instead
+         * of keeping its own copy to drift out of step.
+         */
+        internal const val TRASH_RETENTION_DAYS = 90L
+        private const val TRASH_RETENTION_MS = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000
     }
 }
