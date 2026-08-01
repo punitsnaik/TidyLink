@@ -17,7 +17,6 @@ import dev.punit.tidylink.data.local.LinkDao
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.LinkQueryBuilder
 import dev.punit.tidylink.data.local.SortOrder
-import dev.punit.tidylink.data.local.TagCount
 import dev.punit.tidylink.data.local.TrashedLinkEntity
 import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.scraper.ScrapedData
@@ -143,46 +142,10 @@ class LinkRepository(
         searchQuery: String,
         category: String?,
         sort: SortOrder,
-        tag: String? = null,
-        unreadOnly: Boolean = false,
     ): PagingSource<Int, LinkEntity> =
-        linkDao.pagingSource(
-            LinkQueryBuilder.build(searchQuery, category, sort, tag, unreadOnly)
-        )
+        linkDao.pagingSource(LinkQueryBuilder.build(searchQuery, category, sort))
 
     fun getCategories(): Flow<List<CategoryCount>> = linkDao.getCategories()
-
-    /**
-     * Tags across the library, busiest first, for the tag filter row.
-     *
-     * ponytail: counted in Kotlin over every row's tag array, so this is
-     * O(n) on each library change. Fine at the scale this app runs at and
-     * it costs no migration. Upgrade path if a library ever gets big
-     * enough to feel it: a normalized `tags` table with a GROUP BY.
-     */
-    fun getTagCounts(): Flow<List<TagCount>> = linkDao.observeTags().map { rows ->
-        rows.flatMap { it.tags }
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            // Tags arrive from both the scraper and the LLM, so the same
-            // tag shows up in mixed case. Fold those together and label the
-            // chip with the most common spelling. SQLite's LIKE is
-            // ASCII-case-insensitive, so one chip correctly matches every
-            // spelling it was folded from.
-            .groupBy { it.lowercase() }
-            .map { (_, spellings) ->
-                TagCount(
-                    tag = spellings.groupingBy { it }.eachCount().maxByOrNull { it.value }!!.key,
-                    count = spellings.size,
-                )
-            }
-            .sortedWith(compareByDescending<TagCount> { it.count }.thenBy { it.tag.lowercase() })
-    }.flowOn(Dispatchers.Default)
-    // flowOn is load-bearing, not decoration. Room's own flow carries an
-    // internal flowOn(queryDispatcher), but a .map applied DOWNSTREAM of
-    // that runs in the collector's context - here Dispatchers.Main, via
-    // stateIn(viewModelScope). Without this every write to `links` re-folds
-    // every tag array in the library on the UI thread.
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     fun pinnedPagingSource(): PagingSource<Int, LinkEntity> = linkDao.pinnedPagingSource()
@@ -213,7 +176,7 @@ class LinkRepository(
      * serialized JSON, in one transaction.
      *
      * Everything that reads the library therefore excludes trash without
-     * asking - search, category tiles, tag counts, export, backup and the
+     * asking - search, category tiles, export, backup and the
      * enrichment sweep all query `links` and simply cannot see these rows.
      */
     suspend fun moveToTrash(ids: List<String>) {
@@ -250,7 +213,7 @@ class LinkRepository(
 
     /**
      * Trash contents, already decoded. Decoding happens off the main thread
-     * for the same reason [getTagCounts] does: a `.map` downstream of
+     * off the main thread on purpose: a `.map` downstream of
      * Room's flow runs in the COLLECTOR's context, and JSON-parsing a few
      * hundred rows there would land on the UI thread.
      */
@@ -289,12 +252,11 @@ class LinkRepository(
 
     suspend fun deleteLinks(ids: List<String>) = moveToTrash(ids)
 
-    /** Manual edit from the UI: title / category / tags. */
+    /** Manual edit from the UI: title / category / note. */
     suspend fun updateLinkDetails(
         link: LinkEntity,
         title: String,
         category: String,
-        tags: List<String>,
         note: String = link.note,
     ): LinkEntity {
         val updated = link.copy(
@@ -302,9 +264,6 @@ class LinkRepository(
             category = category.trim()
                 .ifBlank { FALLBACK_CATEGORY }
                 .let { resolveCategory(it, allCategoryNames()) },
-            tags = tags.map { it.trim().removePrefix("#").lowercase() }
-                .filter { it.isNotBlank() }
-                .distinct(),
             // Only trimmed, never blank-guarded: clearing a note is a
             // legitimate edit, unlike clearing the title.
             note = note.trim(),
@@ -359,7 +318,6 @@ class LinkRepository(
                 description = "",
                 imageUrl = null,
                 category = FALLBACK_CATEGORY,
-                tags = emptyList(),
                 aiSummary = "",
                 dedupeKey = UrlCanonicalizer.dedupeKey(url),
             ).also { linkDao.upsert(it) }
@@ -393,7 +351,6 @@ class LinkRepository(
             imageUrl = scraped.imageUrl ?: entity.imageUrl,
             category = classification?.category?.takeIf { it.isNotBlank() }
                 ?.let { resolveCategory(it, existing) } ?: entity.category,
-            tags = classification?.tags?.takeIf { it.isNotEmpty() } ?: entity.tags,
             // A blank summary would leave the row matching getClassifyCandidates
             // (aiSummary = '') forever, re-classifying it on every sweep.
             aiSummary = classification?.aiSummary?.takeIf { it.isNotBlank() }
@@ -458,9 +415,8 @@ class LinkRepository(
             imageUrl = scraped.imageUrl ?: existing.imageUrl,
             category = classification?.category?.takeIf { it.isNotBlank() }
                 ?.let { resolveCategory(it, categories) } ?: existing.category,
-            // takeIf: an empty tag list / summary is the model saying nothing,
-            // not saying "remove what you had" - never downgrade on it.
-            tags = classification?.tags?.takeIf { it.isNotEmpty() } ?: existing.tags,
+            // takeIf: an empty summary is the model saying nothing, not
+            // saying "remove what you had" - never downgrade on it.
             aiSummary = classification?.aiSummary?.takeIf { it.isNotBlank() }
                 ?: existing.aiSummary,
             scrapeAttempts = existing.scrapeAttempts + 1,
@@ -534,7 +490,6 @@ class LinkRepository(
                         // empty field means "no answer", not "clear it".
                         category = classification.category.takeIf { it.isNotBlank() }
                             ?.let { resolveCategory(it, categories) } ?: link.category,
-                        tags = classification.tags.takeIf { it.isNotEmpty() } ?: link.tags,
                         aiSummary = classification.aiSummary.takeIf { it.isNotBlank() }
                             ?: link.aiSummary,
                     )
@@ -703,7 +658,6 @@ class LinkRepository(
                 description = "",
                 imageUrl = null,
                 category = category,
-                tags = emptyList(),
                 aiSummary = "",
                 // Keep the bookmark's real age when the export carries one,
                 // so an import doesn't dump a decade of links onto today and

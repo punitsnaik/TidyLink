@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -238,6 +239,114 @@ class MigrationTest {
         assertTrue("trash table should exist at v6", db.columnsOf("trashed_links").isNotEmpty())
     }
 
+    /**
+     * v7 drops `tags` with the 12-step recreate - copy into a new table,
+     * swap it in - because DROP COLUMN needs API 34 and minSdk is 29.
+     *
+     * The column list in that INSERT is typed out by hand, which is exactly
+     * where a value silently lands one slot to the left. So this asserts
+     * every surviving column AND the row's contents, not just that the
+     * migration ran.
+     */
+    @Test
+    fun migrate_6_to_7_drops_tags_and_keeps_every_other_column_and_row() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS).close()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS)
+
+        val columns = db.columnsOf("links").sorted()
+        assertFalse("tags must be gone at v7", "tags" in columns)
+        assertEquals(
+            listOf(
+                "aiSummary", "category", "dedupeKey", "description", "id", "imageUrl",
+                "isRead", "note", "pinned", "scrapeAttempts", "timestamp", "title", "url",
+            ),
+            columns,
+        )
+        db.query(
+            "SELECT id, url, title, description, imageUrl, category, aiSummary, " +
+                "timestamp, dedupeKey, pinned, scrapeAttempts FROM links"
+        ).use { c ->
+            assertTrue("the row must survive the copy", c.moveToNext())
+            assertEquals("kot", c.getString(0))
+            assertEquals("https://kotlinlang.org", c.getString(1))
+            assertEquals("Kotlin Compose Guide", c.getString(2))
+            assertEquals("Building UI", c.getString(3))
+            assertEquals("http://img", c.getString(4))
+            assertEquals("Dev", c.getString(5))
+            assertEquals("A guide", c.getString(6))
+            assertEquals(100L, c.getLong(7))
+            assertEquals("kotlinlang.org", c.getString(8))
+            assertEquals(1, c.getInt(9))
+            assertEquals(1, c.getInt(10))
+            assertFalse("only one row was ever inserted", c.moveToNext())
+        }
+    }
+
+    /**
+     * The assertion that earns its keep. Recreating an external-content FTS4
+     * table leaves it EMPTY, and the 12-step copy reassigns every rowid, so
+     * the rebuild has to happen AFTER the copy. Delete that one line, or
+     * move it before the copy, and every pre-upgrade link silently vanishes
+     * from search - nothing else in this suite notices.
+     */
+    @Test
+    fun migrate_6_to_7_rebuilds_the_fts_index_so_existing_links_stay_searchable() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS).use { db ->
+            db.execSQL("UPDATE links SET note = 'reread before the offsite' WHERE id = 'kot'")
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS).close()
+
+        val db = androidx.room.Room.databaseBuilder(
+            ApplicationProvider.getApplicationContext<android.content.Context>(),
+            AppDatabase::class.java,
+            TEST_DB,
+        ).addMigrations(*ALL_MIGRATIONS).build()
+        helper.closeWhenFinished(db)
+
+        assertEquals(
+            "a title word must still match after links_fts was recreated",
+            listOf("kot"),
+            db.searchIds("kotl"),
+        )
+        assertEquals(
+            "note is still indexed at v7 - the recreate must not have dropped it",
+            listOf("kot"),
+            db.searchIds("offsite"),
+        )
+    }
+
+    /** v7 rebuilds `links`, so prove it does not disturb the trash beside it. */
+    @Test
+    fun migrate_6_to_7_leaves_the_trash_table_alone() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 6, true, *ALL_MIGRATIONS).use { db ->
+            db.execSQL(
+                "INSERT INTO trashed_links (id, json, deletedAt) " +
+                    "VALUES ('t', '{\"id\":\"t\"}', 5)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS)
+
+        assertEquals(listOf("t"), db.query("SELECT id FROM trashed_links").ids())
+    }
+
+    /** A fresh v4 install must reach v7 in one go. */
+    @Test
+    fun migrate_4_to_7_runs_every_migration_in_sequence() {
+        createV4Database()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS)
+
+        assertTrue("isRead should exist at v7", "isRead" in db.columnsOf("links"))
+        assertTrue("note should exist at v7", "note" in db.columnsOf("links"))
+        assertFalse("tags must not survive to v7", "tags" in db.columnsOf("links"))
+        assertTrue("trash table should exist at v7", db.columnsOf("trashed_links").isNotEmpty())
+    }
+
     /** Search must still work through a live Room instance after migrating. */
     @Test
     fun database_opens_and_searches_after_migrating_from_v1() {
@@ -303,6 +412,14 @@ class MigrationTest {
     private fun SupportSQLiteDatabase.columnsOf(table: String): List<String> =
         query("PRAGMA table_info($table)").use { c ->
             buildList { while (c.moveToNext()) add(c.getString(1)) }
+        }
+
+    /** Ids matching a library search, through the real query builder. */
+    private fun AppDatabase.searchIds(term: String): List<String> =
+        openHelper.readableDatabase.query(
+            LinkQueryBuilder.build(term, category = null, sort = SortOrder.NEWEST)
+        ).use { c ->
+            buildList { while (c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("id"))) }
         }
 
     private fun android.database.Cursor.ids(): List<String> =
