@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 private val THUMB_HEIGHT = 48.dp
@@ -52,6 +53,42 @@ internal fun fastScrollTargetIndex(fraction: Float, itemCount: Int): Int =
     (fraction * (itemCount - 1))
         .roundToInt()
         .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+
+/**
+ * Where the thumb sits, 0..1, while the LIST is driving it.
+ *
+ * Row-based and offset-aware on purpose. The obvious version - first
+ * visible item index over the item count - only moves the thumb when a
+ * whole row passes, so the thumb walks down a staircase instead of
+ * sliding; with cards of uneven height those steps land at uneven times,
+ * which reads as the thumb shivering rather than tracking the list.
+ * [rowScrollOffsetPx] makes the movement continuous within a row.
+ *
+ * It also takes [viewportHeightPx] rather than "how many items are visible
+ * right now". That count flips between n and n+1 as a row half-enters the
+ * viewport, and a denominator that changes every frame nudges the thumb
+ * BACKWARDS while the list scrolls forwards - visible jitter on a short
+ * library, where one item is a large share of the track.
+ *
+ * ponytail: [rowHeightPx] is the first visible row's height, so mixed card
+ * heights make this an approximation. It stays monotonic, which is all a
+ * seek bar needs; exact would mean measuring every row in the library.
+ */
+internal fun fastScrollFraction(
+    firstVisibleRow: Int,
+    rowScrollOffsetPx: Int,
+    rowHeightPx: Int,
+    totalRows: Int,
+    viewportHeightPx: Int,
+): Float {
+    if (rowHeightPx <= 0 || totalRows <= 0) return 0f
+    // Fractional on purpose: rounding the visible row count to a whole
+    // number reintroduces the same off-by-one wobble in the denominator.
+    val scrollableRows = totalRows - viewportHeightPx.toFloat() / rowHeightPx
+    if (scrollableRows <= 0f) return 0f
+    val current = firstVisibleRow + rowScrollOffsetPx.toFloat() / rowHeightPx
+    return (current / scrollableRows).coerceIn(0f, 1f)
+}
 
 /**
  * Google Photos style fast scroller: a capsule thumb on the right edge that
@@ -84,19 +121,35 @@ internal fun FastScroller(
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var scrollJob: Job? by remember { mutableStateOf(null) }
 
-    // Where the list actually is, as a 0..1 fraction of scrollable indexes.
+    // Where the list actually is, as a 0..1 fraction of scrollable rows.
     // [indexOffset] discounts non-link items the grid puts ahead of the data
     // (the collapsing header), so the thumb still maps over links only.
     val layoutFraction by remember(indexOffset) {
         derivedStateOf {
             val info = gridState.layoutInfo
-            val scrollable = info.totalItemsCount - indexOffset - info.visibleItemsInfo.size
-            if (scrollable <= 0) {
-                0f
-            } else {
-                val first = (gridState.firstVisibleItemIndex - indexOffset).coerceAtLeast(0)
-                (first.toFloat() / scrollable).coerceIn(0f, 1f)
-            }
+            // Header excluded: it is full-span and taller than a card, so
+            // letting it define the row height would skew every row after it.
+            val links = info.visibleItemsInfo.filter { it.index >= indexOffset }
+            val firstLink = links.firstOrNull() ?: return@derivedStateOf 0f
+            val columns = (links.maxOf { it.column } + 1).coerceAtLeast(1)
+            val linkCount = (info.totalItemsCount - indexOffset).coerceAtLeast(0)
+            fastScrollFraction(
+                // The header occupies one full-span row of its own, so the
+                // grid's row numbers run one ahead of the link rows.
+                firstVisibleRow = (firstLink.row - if (indexOffset > 0) 1 else 0)
+                    .coerceAtLeast(0),
+                // Only meaningful once a link IS the first visible item -
+                // while the header is still on screen this offset measures
+                // the header, and the thumb belongs at the top anyway.
+                rowScrollOffsetPx = if (gridState.firstVisibleItemIndex >= indexOffset) {
+                    gridState.firstVisibleItemScrollOffset
+                } else {
+                    0
+                },
+                rowHeightPx = firstLink.size.height,
+                totalRows = ceil(linkCount.toFloat() / columns).toInt(),
+                viewportHeightPx = info.viewportSize.height,
+            )
         }
     }
     // While dragging the thumb follows the finger, not the layout - feeding
