@@ -19,7 +19,6 @@ data class LinkEntity(
     val description: String,
     val imageUrl: String?,
     val category: String,
-    val tags: List<String>,
     val aiSummary: String,
     val timestamp: Long = System.currentTimeMillis(),
     /**

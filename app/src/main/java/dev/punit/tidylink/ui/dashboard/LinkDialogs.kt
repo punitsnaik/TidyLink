@@ -105,23 +105,22 @@ internal fun BookmarkImportDialog(
     )
 }
 
-/** Manual edit of a link's title, category, tags, and personal note. */
+/** Manual edit of a link's title, category, and personal note. */
 @Composable
 internal fun EditLinkDialog(
     link: LinkEntity,
-    onConfirm: (title: String, category: String, tags: String, note: String) -> Unit,
+    onConfirm: (title: String, category: String, note: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var title by rememberSaveable(link.id) { mutableStateOf(link.title) }
     var category by rememberSaveable(link.id) { mutableStateOf(link.category) }
-    var tags by rememberSaveable(link.id) { mutableStateOf(link.tags.joinToString(", ")) }
     var note by rememberSaveable(link.id) { mutableStateOf(link.note) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.dialog_edit_title)) },
         text = {
-            // Scrollable: four fields (one of them multi-line) don't fit an
+            // Scrollable: three fields (one of them multi-line) don't fit an
             // AlertDialog on a short screen or with a keyboard up.
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
@@ -140,13 +139,6 @@ internal fun EditLinkDialog(
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = tags,
-                    onValueChange = { tags = it },
-                    label = { Text(stringResource(R.string.field_tags)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
                     label = { Text(stringResource(R.string.field_note)) },
@@ -158,7 +150,7 @@ internal fun EditLinkDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(title, category, tags, note) },
+                onClick = { onConfirm(title, category, note) },
                 enabled = title.isNotBlank(),
             ) { Text(stringResource(R.string.action_save)) }
         },

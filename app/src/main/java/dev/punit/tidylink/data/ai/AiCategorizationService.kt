@@ -20,7 +20,6 @@ import java.util.concurrent.TimeUnit
 @Serializable
 data class AiClassification(
     val category: String,
-    val tags: List<String>,
     val aiSummary: String,
 )
 
@@ -51,7 +50,6 @@ data class ChatChoice(val message: ChatMessage? = null)
 data class BatchClassificationItem(
     val index: Int = -1,
     val category: String = "",
-    val tags: List<String> = emptyList(),
     val aiSummary: String = "",
 )
 
@@ -119,7 +117,7 @@ internal object ProviderFailure {
 }
 
 /**
- * Classifies a scraped link into category / tags / summary using the LLM
+ * Classifies a scraped link into category / summary using the LLM
  * providers the user configured in-app (see [LlmProviderStore]).
  *
  * Providers are tried in order: when one is rate-limited (HTTP 429) or
@@ -335,7 +333,7 @@ class AiCategorizationService(
                 .filter { it.index in items.indices && it.category.isNotBlank() }
                 .associateBy { it.index }
             List(items.size) { i ->
-                byIndex[i]?.let { AiClassification(it.category, it.tags, it.aiSummary) }
+                byIndex[i]?.let { AiClassification(it.category, it.aiSummary) }
             }
         } catch (e: CancellationException) {
             throw e // never swallow coroutine cancellation
@@ -387,11 +385,10 @@ class AiCategorizationService(
             You are a smart bookmark categorization engine.
             Given web page metadata, respond with ONLY a JSON object
             (no markdown, no explanation) using exactly this shape:
-            {"category": "<1-2 word category>", "tags": ["<tag1>", "<tag2>", "<tag3>"], "aiSummary": "<one clean sentence summarizing the page>"}
+            {"category": "<1-2 word category>", "aiSummary": "<one clean sentence summarizing the page>"}
 
             Rules:
             - "category" must be 1-2 words, Title Case (e.g. "Tech News", "Recipes", "Dev Tools").
-            - "tags" must be an array of 3 to 5 short lowercase strings.
             - "aiSummary" must be exactly one sentence.
             - Base everything on the SUBSTANTIVE content of the page. Social media
               captions often start with promotional calls-to-action ("Comment X to
@@ -406,13 +403,12 @@ class AiCategorizationService(
             You will receive metadata for SEVERAL web pages, each labelled with an index.
             Respond with ONLY a JSON array (no markdown, no explanation) containing one
             object per page, using exactly this shape:
-            [{"index": 0, "category": "<1-2 word category>", "tags": ["<tag1>", "<tag2>", "<tag3>"], "aiSummary": "<one clean sentence summarizing the page>"}, ...]
+            [{"index": 0, "category": "<1-2 word category>", "aiSummary": "<one clean sentence summarizing the page>"}, ...]
 
             Rules:
             - Include every page exactly once, with its original "index".
             - "category" must be 1-2 words, Title Case (e.g. "Tech News", "Recipes", "Dev Tools").
             - Reuse the same category string for pages about the same topic.
-            - "tags" must be an array of 3 to 5 short lowercase strings.
             - "aiSummary" must be exactly one sentence.
             - Base everything on the SUBSTANTIVE content of the page. Social media
               captions often start with promotional calls-to-action ("Comment X to

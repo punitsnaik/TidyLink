@@ -15,11 +15,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -75,7 +72,7 @@ import java.text.DateFormat
 import java.util.Date
 
 /** Full-detail bottom sheet shown when a card is tapped. */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LinkDetailSheet(
     link: LinkEntity,
@@ -87,7 +84,6 @@ internal fun LinkDetailSheet(
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleRead: () -> Unit,
-    onSelectTag: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val source = linkSourceOf(link.url)
@@ -242,28 +238,6 @@ internal fun LinkDetailSheet(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-
-            if (link.tags.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    // Tapping a tag filters the library by it - the sheet
-                    // is where tags are actually legible, so it's the
-                    // natural entry point into the header's tag row.
-                    link.tags.forEach { tag ->
-                        TagChip(
-                            tag,
-                            // clip before clickable so the ripple follows the
-                            // chip's rounded background instead of squaring it off.
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { onSelectTag(tag) },
-                        )
-                    }
-                }
-            }
 
             Spacer(Modifier.height(8.dp))
         }

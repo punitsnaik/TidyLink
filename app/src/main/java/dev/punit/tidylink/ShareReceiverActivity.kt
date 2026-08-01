@@ -29,6 +29,9 @@ class ShareReceiverActivity : Activity() {
 
     private fun handleShare() {
         // Some apps share URLs under text/* subtypes other than text/plain.
+        // The manifest filter must stay text/* to match, or this branch is
+        // unreachable for exactly the apps it exists to serve - the activity
+        // never appears in their share sheet in the first place.
         if (intent?.action != Intent.ACTION_SEND ||
             intent.type?.startsWith("text/") != true
         ) {
