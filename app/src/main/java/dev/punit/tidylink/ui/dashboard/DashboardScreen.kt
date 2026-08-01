@@ -245,14 +245,29 @@ fun DashboardScreen(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        context.contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-        )
-        viewModel.enableBackup(uri.toString())
+        // Guarded, and the guard decides whether backups turn on at all.
+        // A provider that hands back a tree URI without a persistable grant
+        // throws SecurityException here - unguarded that crashed the app
+        // inside this callback. Enabling anyway would be worse than the
+        // crash in one way: the weekly worker would run until the next
+        // reboot and then fail silently forever, which is exactly the
+        // failure this feature exists to rule out. So: no grant, no backup.
+        val persisted = runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }.isSuccess
+        if (persisted) viewModel.enableBackup(uri.toString())
         scope.launch {
             snackbarHostState.showSnackbar(
-                resources.getString(R.string.msg_auto_backup_enabled)
+                resources.getString(
+                    if (persisted) {
+                        R.string.msg_auto_backup_enabled
+                    } else {
+                        R.string.msg_auto_backup_folder_unusable
+                    }
+                )
             )
         }
     }

@@ -13,7 +13,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.punit.tidylink.TidyLinkApplication
-import dev.punit.tidylink.data.settings.BackupStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,7 +38,14 @@ class BackupWorker(
 
     override suspend fun doWork(): Result {
         val app = applicationContext as TidyLinkApplication
-        val store = BackupStore(applicationContext)
+        // The container's store, NOT a fresh one. BackupState is a
+        // per-instance MutableStateFlow and nothing listens for preference
+        // changes, so recordSuccess/recordFailure on a second instance land
+        // in a flow no collector is attached to - Settings would keep
+        // showing "hasn't run yet" while backups succeed, and show nothing
+        // at all while they fail, which is the one thing doWork's catch
+        // block below exists to prevent.
+        val store = app.container.backupStore
         // The enabled flag, not the folder URI. disable() keeps the folder on
         // purpose, so a URI check alone lets an already-queued run write into
         // the user's folder after they switched backups off.
