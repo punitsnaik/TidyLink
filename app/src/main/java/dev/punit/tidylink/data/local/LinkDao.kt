@@ -12,16 +12,6 @@ import kotlinx.coroutines.flow.Flow
 /** A category name together with how many links use it. */
 data class CategoryCount(val category: String, val count: Int)
 
-/**
- * One row's tag list. Exists only so Room applies the [Converters] JSON
- * conversion per row - a bare `Flow<List<String>>` return type for a
- * multi-row single-column query is ambiguous against that same converter.
- */
-data class TagsRow(val tags: List<String>)
-
-/** A tag together with how many links carry it. */
-data class TagCount(val tag: String, val count: Int)
-
 @Dao
 interface LinkDao {
 
@@ -60,16 +50,6 @@ interface LinkDao {
         """
     )
     suspend fun getCategoriesOnce(): List<CategoryCount>
-
-    /**
-     * Every non-empty tag array in the library. Counted in Kotlin by the
-     * repository rather than in SQL: `tags` is a JSON array in one column,
-     * so grouping it needs either the JSON1 extension (not dependable on
-     * API 29) or a normalized tags table (a migration this feature does
-     * not otherwise need).
-     */
-    @Query("SELECT tags FROM links WHERE tags != '[]' AND tags != ''")
-    fun observeTags(): Flow<List<TagsRow>>
 
     @Query("UPDATE links SET category = :newCategory WHERE category = :oldCategory")
     suspend fun renameCategory(oldCategory: String, newCategory: String)

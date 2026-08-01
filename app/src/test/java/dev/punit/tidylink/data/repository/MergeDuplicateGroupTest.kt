@@ -31,7 +31,6 @@ class MergeDuplicateGroupTest {
         description = description,
         imageUrl = imageUrl,
         category = category,
-        tags = emptyList(),
         aiSummary = aiSummary,
         timestamp = timestamp,
         dedupeKey = dedupeKey,

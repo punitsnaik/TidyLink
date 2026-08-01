@@ -29,7 +29,6 @@ class TrashSerializationTest {
         description = "A description",
         imageUrl = "https://example.com/img.png",
         category = "Dev",
-        tags = listOf("kotlin", "android"),
         aiSummary = "A summary",
         timestamp = 1_620_000_000_000L,
         dedupeKey = "example.com/a",
@@ -50,6 +49,10 @@ class TrashSerializationTest {
      * some column existed, must still restore. Otherwise every future
      * column silently makes existing trash unrecoverable - which is the
      * failure this design exists to avoid.
+     *
+     * The `tags` key here is the mirror case: it was DROPPED in schema v7,
+     * so this row also proves a pre-v7 trash entry restores instead of
+     * throwing on a field the entity no longer has.
      */
     @Test
     fun `a row trashed before isRead and note existed still restores`() {
@@ -102,13 +105,13 @@ class TrashSerializationTest {
     }
 
     @Test
-    fun `tags with awkward characters survive the round trip`() {
+    fun `awkward characters survive the round trip`() {
         val awkward = link.copy(
-            tags = listOf("c++", "a,b", "quote\"inside", "50%"),
+            title = "c++ / a,b / quote\"inside / 50%",
             note = "line one\nline two \"quoted\"",
         )
         val restored = json.decodeFromString<LinkEntity>(json.encodeToString(awkward))
-        assertEquals(awkward.tags, restored.tags)
+        assertEquals(awkward.title, restored.title)
         assertEquals(awkward.note, restored.note)
     }
 

@@ -4,16 +4,14 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [LinkEntity::class, LinkFtsEntity::class, TrashedLinkEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
-@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun linkDao(): LinkDao
@@ -30,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
         val ALL_MIGRATIONS: Array<Migration>
             get() = arrayOf(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                MIGRATION_6_7,
             )
 
         /** v2: indexed dedupeKey (fast duplicate checks) + pinned flag. */
@@ -138,6 +137,83 @@ abstract class AppDatabase : RoomDatabase() {
                         "`id` TEXT NOT NULL, `json` TEXT NOT NULL, " +
                         "`deletedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))"
                 )
+            }
+        }
+
+        /**
+         * v7: drops the `tags` column. Tag filtering collided with the
+         * category filter in the UI and was removed along with the column
+         * that fed it.
+         *
+         * This is the 12-step recreate, NOT `ALTER TABLE ... DROP COLUMN` -
+         * that needs SQLite 3.35 (API 34) and minSdk here is 29. See
+         * MIGRATION_3_4's comment for the rule this follows.
+         *
+         * Order matters and is not cosmetic:
+         *
+         * 1. `links_fts` goes first. It is an external-content table whose
+         *    `content=links` points at the table about to be dropped, and
+         *    it also carries a `tags` column of its own, so it has to be
+         *    rebuilt either way.
+         * 2. `links` is copied column-by-column into a new table without
+         *    `tags`, then renamed into place. The column list in the INSERT
+         *    is written out in full rather than `SELECT *`, so a future
+         *    column added above `tags` cannot silently shift values into the
+         *    wrong slots.
+         * 3. The dedupeKey index is recreated - `DROP TABLE` takes its
+         *    indices with it.
+         * 4. The FTS index is repopulated. Recreating leaves an
+         *    external-content table EMPTY, so without the rebuild every
+         *    existing link vanishes from search. MIGRATION_4_5 has the same
+         *    line for the same reason.
+         *
+         * Rowids are reassigned by the copy, which is exactly why the
+         * rebuild must come after it: the FTS index references `links` by
+         * rowid, and any index built before the copy would point at the old
+         * numbering.
+         *
+         * Sync triggers are not touched here. Room drops them in
+         * onPreMigrate and recreates them in onPostMigrate around this call.
+         *
+         * Must match the generated 7.json exactly; Room validates it.
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `links_fts`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `_new_links` (" +
+                        "`id` TEXT NOT NULL, `url` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                        "`description` TEXT NOT NULL, `imageUrl` TEXT, " +
+                        "`category` TEXT NOT NULL, `aiSummary` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "`dedupeKey` TEXT NOT NULL DEFAULT '', " +
+                        "`pinned` INTEGER NOT NULL DEFAULT 0, " +
+                        "`scrapeAttempts` INTEGER NOT NULL DEFAULT 0, " +
+                        "`isRead` INTEGER NOT NULL DEFAULT 0, " +
+                        "`note` TEXT NOT NULL DEFAULT '', " +
+                        "PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "INSERT INTO `_new_links` (" +
+                        "`id`, `url`, `title`, `description`, `imageUrl`, `category`, " +
+                        "`aiSummary`, `timestamp`, `dedupeKey`, `pinned`, `scrapeAttempts`, " +
+                        "`isRead`, `note`) " +
+                        "SELECT `id`, `url`, `title`, `description`, `imageUrl`, `category`, " +
+                        "`aiSummary`, `timestamp`, `dedupeKey`, `pinned`, `scrapeAttempts`, " +
+                        "`isRead`, `note` FROM `links`"
+                )
+                db.execSQL("DROP TABLE `links`")
+                db.execSQL("ALTER TABLE `_new_links` RENAME TO `links`")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_links_dedupeKey` ON `links` (`dedupeKey`)"
+                )
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `links_fts` USING FTS4(" +
+                        "`title` TEXT NOT NULL, `description` TEXT NOT NULL, " +
+                        "`category` TEXT NOT NULL, `aiSummary` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, tokenize=unicode61, content=`links`)"
+                )
+                db.execSQL("INSERT INTO `links_fts`(`links_fts`) VALUES('rebuild')")
             }
         }
 
