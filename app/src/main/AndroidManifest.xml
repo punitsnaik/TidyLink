@@ -41,7 +41,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <!-- text/*, NOT text/plain. The manifest filter is what decides
+                     whether this app appears in a share sheet at all, so a
+                     text/plain filter makes TidyLink invisible in any app that
+                     shares a link under another text/* subtype - and
+                     ShareReceiverActivity's own text/* check never gets to run.
+                     That mismatch is why some apps' share sheets listed
+                     TidyLink and others didn't. Non-URL text is handled: the
+                     receiver shows "no link found" and saves nothing. -->
+                <data android:mimeType="text/*" />
             </intent-filter>
         </activity>
 
