@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/social/tidylink-readme-banner-1280x640.png" alt="TidyLink - a tidy home for every link you save" width="720">
+
 # TidyLink
 
 **A tidy home for every link you save.**
