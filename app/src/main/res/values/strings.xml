@@ -24,13 +24,9 @@
 
     <!-- Category chips -->
     <string name="chip_all">All</string>
-    <string name="chip_all_categories">All categories (%1$d)</string>
     <string name="sheet_filter_by_category">Filter by category</string>
     <string name="chip_category_with_count">%1$s (%2$d)</string>
     <string name="tile_more">More</string>
-    <string name="sheet_filter_by_tag">Filter by tag</string>
-    <string name="chip_tag_with_count">#%1$s (%2$d)</string>
-    <string name="chip_unread">Unread</string>
     <string name="action_mark_read">Mark as read</string>
     <string name="action_mark_unread">Mark as unread</string>
     <string name="action_mark_selected_read">Mark selected as read</string>
@@ -42,7 +38,7 @@
         <item quantity="other">Fetching details for %d links…</item>
     </plurals>
     <string name="banner_add_provider_title">AI categorization is off</string>
-    <string name="banner_add_provider_body">Add a free API key so new links get categorized, tagged, and summarized automatically.</string>
+    <string name="banner_add_provider_body">Add a free API key so new links get categorized and summarized automatically.</string>
     <string name="banner_add_provider_action">Add provider</string>
     <string name="action_dismiss">Dismiss</string>
 
@@ -54,7 +50,7 @@
     <string name="intro_organize_title">Find it again</string>
     <string name="intro_organize_body">Every link gets its title, description, and thumbnail fetched in the background. Search across everything, or filter by category with a tap.</string>
     <string name="intro_ai_title">Add AI categorization</string>
-    <string name="intro_ai_body">Optionally, an AI provider can give each link a category, tags, and a one-line summary. It uses your own API key — Gemini\'s free tier works. Keys are encrypted and never leave this device.</string>
+    <string name="intro_ai_body">Optionally, an AI provider can give each link a category and a one-line summary. It uses your own API key — Gemini\'s free tier works. Keys are encrypted and never leave this device.</string>
     <string name="intro_ai_add_key">Add a key</string>
     <string name="intro_ai_configured">AI categorization is ready.</string>
     <string name="intro_action_skip">Skip</string>
@@ -173,7 +169,6 @@
     <string name="dialog_edit_title">Edit link</string>
     <string name="field_title">Title</string>
     <string name="field_category">Category</string>
-    <string name="field_tags">Tags (comma-separated)</string>
     <string name="dialog_import_bookmarks_title">Import browser bookmarks</string>
     <string name="dialog_import_bookmarks_body">Export your bookmarks from Chrome, Firefox or Safari as an HTML file, then pick it on the next screen.</string>
     <string name="dialog_import_bookmarks_use_folders">Use bookmark folders as categories</string>
@@ -292,7 +287,7 @@
     <string name="provider_test_testing">Testing connection…</string>
     <string name="provider_test_ok">Connection OK — ready to add</string>
     <string name="provider_empty_title">No providers yet</string>
-    <string name="provider_empty_body">Add a free Gemini or Grok key to categorize, tag and summarize links automatically.</string>
+    <string name="provider_empty_body">Add a free Gemini or Grok key to categorize and summarize links automatically.</string>
     <string name="provider_model_and_key">%1$s · %2$s</string>
     <string name="time_just_now">just now</string>
     <string name="time_minutes_ago">%1$dm ago</string>

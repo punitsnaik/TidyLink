@@ -13,10 +13,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -30,7 +28,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -345,18 +342,6 @@ internal fun LinkCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-
-                    if (link.tags.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        // Plain Row, not LazyRow: lazy layouts can't be
-                        // measured inside IntrinsicSize.Min and would crash.
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        ) {
-                            link.tags.forEach { tag -> TagChip(tag) }
-                        }
-                    }
                 }
             }
         }
@@ -375,20 +360,5 @@ internal fun CategoryBadge(category: String, modifier: Modifier = Modifier) {
                 shape = RoundedCornerShape(8.dp),
             )
             .padding(horizontal = 8.dp, vertical = 3.dp),
-    )
-}
-
-@Composable
-internal fun TagChip(tag: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "#$tag",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = modifier
-            .background(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = RoundedCornerShape(6.dp),
-            )
-            .padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }

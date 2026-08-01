@@ -19,7 +19,6 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
-import dev.punit.tidylink.data.local.TagCount
 import dev.punit.tidylink.data.repository.BookmarkImportSummary
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.repository.TrashedLink
@@ -87,11 +86,8 @@ sealed interface UpdateState {
 
 data class LinkUiState(
     val categories: List<CategoryCount> = emptyList(),
-    /** Tags across the library, busiest first - drives the tag filter row. */
-    val tags: List<TagCount> = emptyList(),
     val searchQuery: String = "",
     val selectedCategory: String? = null,
-    val selectedTag: String? = null,
     val sortOrder: SortOrder = SortOrder.NEWEST,
     val isProcessing: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -105,8 +101,6 @@ data class LinkUiState(
     val pendingEnrichment: Int = 0,
     /** Redundant copies waiting to be merged - shown in the Tools sheet. */
     val duplicateCount: Int = 0,
-    /** Whether the grid is filtered to links that haven't been opened. */
-    val unreadOnly: Boolean = false,
     /** Links in the trash - shown on the Tools sheet row. */
     val trashCount: Int = 0,
 ) {
@@ -128,8 +122,6 @@ class LinkViewModel(
 
     private val searchQuery = MutableStateFlow("")
     private val selectedCategory = MutableStateFlow<String?>(null)
-    private val selectedTag = MutableStateFlow<String?>(null)
-    private val unreadOnly = MutableStateFlow(false)
     private val sortOrder = MutableStateFlow(SortOrder.NEWEST)
     private val isProcessing = MutableStateFlow(false)
     private val isRefreshing = MutableStateFlow(false)
@@ -142,23 +134,18 @@ class LinkViewModel(
     private data class LibraryQuery(
         val search: String,
         val category: String?,
-        val tag: String?,
         val sort: SortOrder,
-        val unreadOnly: Boolean,
     )
 
     /**
-     * Paged library: search (debounced), category filter, tag filter,
-     * unread filter and sort all run in SQLite; Compose only ever holds the
-     * visible pages in memory, so a 10k-link library scrolls the same as a
-     * 100-link one.
+     * Paged library: search (debounced), category filter and sort all run
+     * in SQLite; Compose only ever holds the visible pages in memory, so a
+     * 10k-link library scrolls the same as a 100-link one.
      */
     val links: Flow<PagingData<LinkEntity>> = combine(
         searchQuery.debounce(250),
         selectedCategory,
-        selectedTag,
         sortOrder,
-        unreadOnly,
         ::LibraryQuery,
     ).flatMapLatest { q ->
         Pager(
@@ -168,7 +155,7 @@ class LinkViewModel(
                 enablePlaceholders = false,
             ),
             pagingSourceFactory = {
-                repository.pagingSource(q.search, q.category, q.sort, q.tag, q.unreadOnly)
+                repository.pagingSource(q.search, q.category, q.sort)
             },
         ).flow
     }.cachedIn(viewModelScope)
@@ -192,9 +179,7 @@ class LinkViewModel(
         val refreshingIds: Set<String> = emptySet(),
         val sortOrder: SortOrder = SortOrder.NEWEST,
         val pendingEnrichment: Int = 0,
-        val tags: List<TagCount> = emptyList(),
         val duplicateCount: Int = 0,
-        val unreadOnly: Boolean = false,
         val trashCount: Int = 0,
     )
 
@@ -208,11 +193,9 @@ class LinkViewModel(
         .combine(repository.pendingEnrichmentCount()) { transient, pending ->
             transient.copy(pendingEnrichment = pending)
         }
-        .combine(repository.getTagCounts()) { transient, tags -> transient.copy(tags = tags) }
         .combine(repository.duplicateCount()) { transient, dupes ->
             transient.copy(duplicateCount = dupes)
         }
-        .combine(unreadOnly) { transient, unread -> transient.copy(unreadOnly = unread) }
         .combine(repository.trashCount()) { transient, trashed ->
             transient.copy(trashCount = trashed)
         }
@@ -221,15 +204,12 @@ class LinkViewModel(
         repository.getCategories(),
         searchQuery,
         selectedCategory,
-        selectedTag,
         transientState,
-    ) { categories, query, category, tag, transient ->
+    ) { categories, query, category, transient ->
         LinkUiState(
             categories = categories,
-            tags = transient.tags,
             searchQuery = query,
             selectedCategory = category,
-            selectedTag = tag,
             sortOrder = transient.sortOrder,
             isProcessing = transient.isProcessing,
             isRefreshing = transient.isRefreshing,
@@ -239,7 +219,6 @@ class LinkViewModel(
             refreshingIds = transient.refreshingIds,
             pendingEnrichment = transient.pendingEnrichment,
             duplicateCount = transient.duplicateCount,
-            unreadOnly = transient.unreadOnly,
             trashCount = transient.trashCount,
         )
     }.stateIn(
@@ -262,19 +241,9 @@ class LinkViewModel(
         selectedCategory.value = category
     }
 
-    /** Pass null to clear. Composes with the category filter, doesn't replace it. */
-    fun selectTag(tag: String?) {
-        selectedTag.value = tag
-    }
-
-    fun setUnreadOnly(enabled: Boolean) {
-        unreadOnly.value = enabled
-    }
-
     /**
-     * Called when the user actually opens a link. Read state that has to be
-     * maintained by hand doesn't get maintained, so this is the path that
-     * makes the unread filter mean anything.
+     * Called when the user actually opens a link, so the library can
+     * resolve instead of only growing.
      */
     fun markRead(link: LinkEntity) {
         if (link.isRead) return
@@ -348,18 +317,16 @@ class LinkViewModel(
         }
     }
 
-    /** Manual edit of a link's title / category / tags (comma-separated). */
+    /** Manual edit of a link's title / category / note. */
     fun editLink(
         link: LinkEntity,
         title: String,
         category: String,
-        tagsText: String,
         note: String,
     ) {
         viewModelScope.launch {
             try {
-                val tags = tagsText.split(',').map { it.trim() }.filter { it.isNotBlank() }
-                repository.updateLinkDetails(link, title, category, tags, note)
+                repository.updateLinkDetails(link, title, category, note)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

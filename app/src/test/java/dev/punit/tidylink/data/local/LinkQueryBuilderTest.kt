@@ -10,14 +10,14 @@ import org.junit.Test
 class LinkQueryBuilderTest {
 
     /**
-     * `links_fts` shares the column names title/description/category/tags/
+     * `links_fts` shares the column names title/description/category/
      * aiSummary with `links`. Any unqualified reference to one of those in
      * the search query is an "ambiguous column name" SQLite error at
      * runtime, which Paging surfaces as an empty list.
      */
     @Test
     fun `sort columns are table-qualified so the fts join stays unambiguous`() {
-        val shared = listOf("title", "description", "category", "tags", "aiSummary")
+        val shared = listOf("title", "description", "category", "aiSummary")
         for (sort in SortOrder.entries) {
             for (column in shared) {
                 assertFalse(
@@ -51,96 +51,25 @@ class LinkQueryBuilderTest {
     }
 
     /**
-     * `tags` is a JSON array in one column, so the filter is a LIKE over
-     * its stored text. Without the JSON quotes around the needle, `"and"`
-     * would match inside `["android"]` and the chip would return links
-     * that don't carry the tag at all.
+     * Order matters: SimpleSQLiteQuery binds positionally, so a mismatch
+     * here silently filters by the wrong value.
      */
     @Test
-    fun `tag filter binds the needle wrapped in its json quotes`() {
-        val query = LinkQueryBuilder.build("", category = null, sort = SortOrder.NEWEST, tag = "and")
-        assertTrue(query.sql.contains("links.tags LIKE ?"))
-        assertEquals(1, query.argCount)
-        assertEquals("%\"and\"%", boundArgs(query).single())
-    }
-
-    @Test
-    fun `tag needle cannot match a longer tag that starts with it`() {
-        val needle = boundArgs(
-            LinkQueryBuilder.build("", null, SortOrder.NEWEST, tag = "and")
-        ).single() as String
-        // Mirrors SQLite LIKE semantics for a needle with no wildcards left
-        // in it: % anchors either end, the rest is a literal substring.
-        val literal = needle.removePrefix("%").removeSuffix("%")
-        assertTrue("""["and","kotlin"]""".contains(literal))
-        assertFalse("""["android"]""".contains(literal))
-    }
-
-    @Test
-    fun `like wildcards inside a tag are escaped so they match literally`() {
-        val needle = boundArgs(
-            LinkQueryBuilder.build("", null, SortOrder.NEWEST, tag = "c_100%")
-        ).single() as String
-        assertEquals("%\"c\\_100\\%\"%", needle)
-        assertTrue(
-            "escaped needle must declare its escape character",
-            LinkQueryBuilder.build("", null, SortOrder.NEWEST, tag = "c_100%")
-                .sql.contains("ESCAPE"),
-        )
-    }
-
-    @Test
-    fun `search category and tag all compose with correct binding order`() {
-        val query = LinkQueryBuilder.build("kotl", category = "Dev", sort = SortOrder.NEWEST, tag = "jvm")
-        assertTrue(query.sql.contains("links_fts MATCH ?"))
-        assertTrue(query.sql.contains("links.category = ?"))
-        assertTrue(query.sql.contains("links.tags LIKE ?"))
-        assertEquals(3, query.argCount)
-        // Order matters: SimpleSQLiteQuery binds positionally, so a
-        // mismatch here silently filters by the wrong value.
-        val args = boundArgs(query)
-        assertEquals("Dev", args[1])
-        assertEquals("%\"jvm\"%", args[2])
+    fun `search and category bind in the order they appear in the sql`() {
+        val query = LinkQueryBuilder.build("kotl", category = "Dev", sort = SortOrder.NEWEST)
+        assertEquals(listOf("kotl*", "Dev"), boundArgs(query))
     }
 
     /**
-     * The unread predicate is a constant, so it must bind no argument -
-     * binding one would shift the position of every argument added before
-     * it and silently filter by the wrong value.
+     * The tags column was dropped in schema v7. A query still naming it
+     * would fail at runtime as "no such column", which Paging surfaces as
+     * a silently empty list rather than a crash.
      */
     @Test
-    fun `unread filter adds no bound argument`() {
-        val query = LinkQueryBuilder.build(
-            "kotl",
-            category = "Dev",
-            sort = SortOrder.NEWEST,
-            tag = "jvm",
-            unreadOnly = true,
-        )
-        assertTrue(query.sql.contains("links.isRead = 0"))
-        assertEquals(3, query.argCount)
-        assertEquals(listOf("kotl*", "Dev", "%\"jvm\"%"), boundArgs(query))
-    }
-
-    @Test
-    fun `unread filter is absent unless asked for`() {
-        assertFalse(
-            LinkQueryBuilder.build("", null, SortOrder.NEWEST).sql.contains("isRead"),
-        )
-    }
-
-    @Test
-    fun `unread filter works on its own without search or category`() {
-        val query = LinkQueryBuilder.build("", null, SortOrder.NEWEST, unreadOnly = true)
-        assertTrue(query.sql.contains("WHERE links.isRead = 0"))
-        assertEquals(0, query.argCount)
-    }
-
-    @Test
-    fun `no tag filter leaves the tags column out of the query entirely`() {
-        val query = LinkQueryBuilder.build("", category = "Dev", sort = SortOrder.NEWEST)
-        assertFalse(query.sql.contains("links.tags"))
-        assertEquals(1, query.argCount)
+    fun `no query mentions the dropped tags column`() {
+        for (sort in SortOrder.entries) {
+            assertFalse(LinkQueryBuilder.build("kotl", "Dev", sort).sql.contains("tags"))
+        }
     }
 
     @Test
