@@ -40,6 +40,10 @@ class BackupWorker(
     override suspend fun doWork(): Result {
         val app = applicationContext as TidyLinkApplication
         val store = BackupStore(applicationContext)
+        // The enabled flag, not the folder URI. disable() keeps the folder on
+        // purpose, so a URI check alone lets an already-queued run write into
+        // the user's folder after they switched backups off.
+        if (!store.isEnabled()) return Result.success()
         val treeUriString = store.currentFolderUri() ?: return Result.success()
 
         return try {
@@ -61,7 +65,13 @@ class BackupWorker(
             treeUri,
             DocumentsContract.getTreeDocumentId(treeUri),
         )
-        val name = "tidylink-backup-${DATE_FORMAT.format(Date())}.json"
+        // Built per call, never shared: SimpleDateFormat is not thread-safe,
+        // and enableBackup() fires schedule() and runNow() back to back under
+        // two different unique work names, so two workers can format at once.
+        // A garbled date would also corrupt the last-3 rotation, which sorts
+        // on this filename.
+        val stamp = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val name = "$FILE_PREFIX$stamp.json"
 
         val existing = listBackups(resolver, treeUri)
 
@@ -122,10 +132,8 @@ class BackupWorker(
         private const val UNIQUE_ONE_OFF = "backup_now"
         private const val MAX_ATTEMPTS = 3
         private const val MIME_JSON = "application/json"
+        /** The last-3 rotation relies on this name sorting lexicographically. */
         private const val FILE_PREFIX = "tidylink-backup-"
-
-        /** Newest last-3 rotation relies on this sorting lexicographically. */
-        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
         /** Enough history to survive a bad export without filling the folder. */
         private const val KEEP_BACKUPS = 3
@@ -141,8 +149,16 @@ class BackupWorker(
             )
         }
 
+        /**
+         * Cancels BOTH names. [runNow] enqueues a separate one-off, so
+         * cancelling only the periodic work leaves an already-queued
+         * immediate backup free to fire after the user turned this off.
+         */
         fun cancel(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC)
+            WorkManager.getInstance(context).run {
+                cancelUniqueWork(UNIQUE_PERIODIC)
+                cancelUniqueWork(UNIQUE_ONE_OFF)
+            }
         }
 
         /**

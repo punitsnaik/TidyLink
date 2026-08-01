@@ -80,6 +80,14 @@ class BackupStore(context: Context) {
      */
     fun currentFolderUri(): String? = prefs.getString(KEY_FOLDER_URI, null)
 
+    /**
+     * The folder URI is NOT a proxy for this: [disable] deliberately keeps
+     * the folder so re-enabling doesn't re-ask for it. A worker must check
+     * this flag or it will happily write into the user's folder after they
+     * turned backups off.
+     */
+    fun isEnabled(): Boolean = prefs.getBoolean(KEY_ENABLED, false)
+
     private companion object {
         const val PREFS_NAME = "backup"
         const val KEY_ENABLED = "enabled"
