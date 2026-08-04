@@ -111,6 +111,23 @@ android {
                 "proguard-rules.pro",
             )
         }
+        debug {
+            // Distinct package so a debug build and the published release APK
+            // can sit on the same device at once - otherwise testing a change
+            // means uninstalling the real app first. Safe here because nothing
+            // hardcodes the package name: the FileProvider authority is
+            // declared as an applicationId placeholder, so it follows the
+            // suffix automatically.
+            //
+            // Consequence, and it is the point: the two installs have separate
+            // data directories. The debug app starts with an empty library.
+            // Move data across with Settings -> Export / Import, never by
+            // expecting them to share.
+            applicationIdSuffix = ".debug"
+            // Home-screen label comes from src/debug/res/values/strings.xml,
+            // which overrides app_name. resValue() cannot be used for this -
+            // it collides with the app_name already in src/main.
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
