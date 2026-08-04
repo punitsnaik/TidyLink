@@ -4,16 +4,17 @@ import dev.punit.tidylink.data.scraper.ScrapedData
 import dev.punit.tidylink.data.settings.LlmProvider
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.Header
-import retrofit2.http.POST
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /** What the LLM must return - parsed with kotlinx-serialization. */
@@ -55,13 +56,29 @@ data class BatchClassificationItem(
 
 // -------------------------------------------------------------------------
 
-interface ChatCompletionsApi {
-    @POST("chat/completions")
-    suspend fun createChatCompletion(
-        @Header("Authorization") authorization: String,
-        @Body request: ChatRequest,
-    ): ChatResponse
-}
+/**
+ * A non-2xx reply. Carries the status code, because HTTP 429 is retried on
+ * the same provider while every other code rotates to the next one.
+ *
+ * Extends IOException so an unhandled one still reads as a network failure
+ * rather than escaping as something unexpected.
+ */
+internal class HttpStatusException(val code: Int) : IOException("HTTP $code")
+
+/**
+ * The chat-completions endpoint for a provider base URL, or null when the
+ * URL is unusable.
+ *
+ * [LlmProviderStore.sanitized] already guarantees a trailing slash on every
+ * stored provider, and the "test this provider" path normalizes before
+ * calling too - but this trims anyway, because a doubled slash is a 404 on
+ * some providers and silently fine on others, which is the worst kind of
+ * difference to debug.
+ *
+ * Top-level and pure so the join is unit-testable without a provider store.
+ */
+internal fun chatEndpoint(baseUrl: String): String? =
+    "${baseUrl.trim().trimEnd('/')}/chat/completions".toHttpUrlOrNull()?.toString()
 
 /**
  * Why [baseUrl] can never work, or null if it's fine.
@@ -94,7 +111,8 @@ internal fun cleartextReason(baseUrl: String): String? =
 internal object ProviderFailure {
 
     fun describe(e: Throwable): String = when (e) {
-        is retrofit2.HttpException -> httpReason(e.code())
+        // Must stay ahead of the IOException branch - HttpStatusException is one.
+        is HttpStatusException -> httpReason(e.code)
         is java.net.UnknownHostException -> "No connection - host unreachable"
         is java.net.SocketTimeoutException -> "Timed out - provider too slow"
         is kotlinx.serialization.SerializationException ->
@@ -141,23 +159,6 @@ class AiCategorizationService(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS) // free models can be slow
         .build()
-
-    /** One Retrofit stub per distinct base URL, built lazily. */
-    private val apiCache = mutableMapOf<String, ChatCompletionsApi>()
-
-    @Synchronized
-    private fun apiFor(baseUrl: String): ChatCompletionsApi? = try {
-        apiCache.getOrPut(baseUrl) {
-            Retrofit.Builder()
-                .baseUrl(baseUrl)
-                .client(okHttpClient)
-                .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-                .build()
-                .create(ChatCompletionsApi::class.java)
-        }
-    } catch (e: Exception) {
-        null // malformed base URL - skip this provider
-    }
 
     /**
      * Whether any LLM provider is configured at all. Callers use this to
@@ -228,8 +229,8 @@ class AiCategorizationService(
      */
     private suspend fun completeChat(systemPrompt: String, userPrompt: String): String? {
         for (provider in providerStore.providers.value) {
-            val api = apiFor(provider.baseUrl)
-            if (api == null) {
+            val endpoint = chatEndpoint(provider.baseUrl)
+            if (endpoint == null) {
                 providerStore.recordFailure(provider.id, "Invalid base URL")
                 continue
             }
@@ -237,7 +238,7 @@ class AiCategorizationService(
             var reason = "Unknown error"
             while (attempt <= MAX_RATE_LIMIT_RETRIES) {
                 try {
-                    val text = requestChat(api, provider, systemPrompt, userPrompt)
+                    val text = requestChat(endpoint, provider, systemPrompt, userPrompt)
                     if (text != null) {
                         providerStore.recordSuccess(provider.id)
                         return text
@@ -247,9 +248,9 @@ class AiCategorizationService(
                     reason = "Empty response from provider"
                 } catch (e: CancellationException) {
                     throw e // never swallow coroutine cancellation
-                } catch (e: retrofit2.HttpException) {
+                } catch (e: HttpStatusException) {
                     reason = ProviderFailure.describe(e)
-                    if (e.code() != 429) break // bad key/model → next provider
+                    if (e.code != 429) break // bad key/model → next provider
                 } catch (e: Exception) {
                     reason = ProviderFailure.describe(e)
                     break // network/serialization → next provider
@@ -265,21 +266,48 @@ class AiCategorizationService(
         return null
     }
 
+    /**
+     * One POST to an OpenAI-compatible chat-completions endpoint.
+     *
+     * Raw OkHttp rather than Retrofit: this is the only endpoint the app
+     * calls, OkHttp and kotlinx-serialization are already direct
+     * dependencies, and one fewer reflective layer is one fewer thing for R8
+     * to strip in a release build that CI never produces.
+     *
+     * @throws HttpStatusException on any non-2xx reply.
+     */
     private suspend fun requestChat(
-        api: ChatCompletionsApi,
+        endpoint: String,
         provider: LlmProvider,
         systemPrompt: String,
         userPrompt: String,
-    ): String? = api.createChatCompletion(
-        authorization = "Bearer ${provider.apiKey}",
-        request = ChatRequest(
-            model = provider.model,
-            messages = listOf(
-                ChatMessage(role = "system", content = systemPrompt),
-                ChatMessage(role = "user", content = userPrompt),
+    ): String? {
+        val payload = json.encodeToString(
+            ChatRequest.serializer(),
+            ChatRequest(
+                model = provider.model,
+                messages = listOf(
+                    ChatMessage(role = "system", content = systemPrompt),
+                    ChatMessage(role = "user", content = userPrompt),
+                ),
             ),
-        ),
-    ).choices.firstOrNull()?.message?.content
+        )
+        val request = Request.Builder()
+            .url(endpoint)
+            .header("Authorization", "Bearer ${provider.apiKey}")
+            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        // execute() blocks; Retrofit's suspend adapter used to move this off
+        // the calling dispatcher, so it still has to be moved by hand.
+        val body = withContext(Dispatchers.IO) {
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw HttpStatusException(response.code)
+                response.body?.string()
+            }
+        } ?: return null
+        return json.decodeFromString(ChatResponse.serializer(), body)
+            .choices.firstOrNull()?.message?.content
+    }
 
     /**
      * Sends one tiny live request to verify a provider's URL/model/key before
@@ -296,9 +324,9 @@ class AiCategorizationService(
         // it dies deep in OkHttp as an opaque "Network error" that reads like a
         // connectivity problem. Say so here, at paste time, instead.
         cleartextReason(provider.baseUrl)?.let { return it }
-        val api = apiFor(provider.baseUrl) ?: return "Invalid base URL"
+        val endpoint = chatEndpoint(provider.baseUrl) ?: return "Invalid base URL"
         return try {
-            val text = requestChat(api, provider, TEST_SYSTEM_PROMPT, TEST_USER_PROMPT)
+            val text = requestChat(endpoint, provider, TEST_SYSTEM_PROMPT, TEST_USER_PROMPT)
             if (text.isNullOrBlank()) "Empty response from provider" else null
         } catch (e: CancellationException) {
             throw e
@@ -376,6 +404,9 @@ class AiCategorizationService(
          */
         private const val MAX_RATE_LIMIT_RETRIES = 1
         private const val RATE_LIMIT_RETRY_DELAY_MS = 3_000L
+
+        /** Same content type the Retrofit converter used to set. */
+        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         /** Deliberately tiny - a connection check, not a real classification. */
         private const val TEST_SYSTEM_PROMPT = "Reply with the single word: ok"

@@ -10,7 +10,6 @@ ksp = "2.2.10-2.0.2"
 room = "2.8.2"
 jsoup = "1.20.1"
 coil = "3.2.0"
-retrofit = "2.11.0"
 okhttp = "4.12.0"
 kotlinxSerializationJson = "1.8.1"
 coroutines = "1.10.2"
@@ -53,8 +52,6 @@ androidx-paging-compose = { group = "androidx.paging", name = "paging-compose", 
 
 # Networking / scraping
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
-retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
-retrofit-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
