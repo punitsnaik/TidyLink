@@ -37,7 +37,15 @@ class ShareReceiverActivity : Activity() {
         ) {
             return
         }
-        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        // getCharSequenceExtra, NOT getStringExtra. EXTRA_TEXT is declared
+        // CharSequence, and getStringExtra casts - so it returns null for the
+        // Spanned/SpannableString that apps sharing styled text actually put
+        // there. That null used to fall out at the return below, BEFORE the
+        // "no link found" toast, so the share died in total silence. Widening
+        // the manifest filter to text/* made it more likely, not less: the
+        // apps that filter reaches are the ones most prone to sending styled
+        // text. String is a CharSequence, so this is a strict superset.
+        val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString() ?: return
 
         // Shared text often includes extra words around the link
         // (e.g. YouTube shares "Check this out! https://youtu.be/…").
