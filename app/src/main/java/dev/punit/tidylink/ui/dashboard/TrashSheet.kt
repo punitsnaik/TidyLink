@@ -50,7 +50,11 @@ internal fun TrashSheet(
     onEmptyTrash: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = glassSheetColor()) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = glassSheetColor(),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
         Column(
             modifier = Modifier
                 .navigationBarsPadding()
