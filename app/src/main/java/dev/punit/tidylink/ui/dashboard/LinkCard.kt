@@ -16,6 +16,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -56,7 +57,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -80,6 +83,31 @@ import kotlinx.coroutines.delay
  * in the library and still searchable, they just aren't the queue any more.
  */
 private const val READ_ALPHA = 0.55f
+
+// --- Summary line-count derivation (see LinkCardBody / summaryMaxLines) ---
+
+/** Never fewer lines than this, even beside the shortest possible thumbnail. */
+private const val MIN_SUMMARY_LINES = 2
+
+/** Sanity ceiling so a very tall portrait thumbnail can't ask for a wall of text. */
+private const val MAX_SUMMARY_LINES = 8
+
+/**
+ * maxLines on the title [Text] below, and the value the reservation math
+ * assumes the title costs. One constant for both so they can't drift apart.
+ */
+private const val TITLE_MAX_LINES = 2
+
+// The rest of these mirror the literal padding/spacing values used in the
+// details Column below. Kept as named constants rather than measured,
+// because measuring them would need another SubcomposeLayout-shaped
+// workaround (see the "why not BoxWithConstraints" note on
+// summaryMaxLines). If those paddings change, update these too.
+private val DETAILS_COLUMN_TOP_PADDING = 10.dp
+private val DETAILS_COLUMN_BOTTOM_PADDING = 10.dp
+private val BADGE_VERTICAL_PADDING = 3.dp
+private val BADGE_TO_TITLE_SPACER = 6.dp
+private val TITLE_TO_SUMMARY_SPACER = 4.dp
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -234,52 +262,13 @@ internal fun LinkCard(
                     )
                 },
         ) {
-            // IntrinsicSize.Min lets the thumbnail stretch to exactly the
-            // card's content height (edge to edge minus a small aesthetic
-            // gap) instead of floating as a small square in empty space.
-            Row(
-                modifier = Modifier
-                    .height(IntrinsicSize.Min)
-                    // animateContentSize: text appearing after a scrape/
-                    // classification grows the card smoothly instead of snapping.
-                    .animateContentSize(),
-            ) {
-                // Thumbnail (or favicon placeholder) with selection / refresh
-                // overlays. Fills the card height; 5dp gap on all sides.
-                // Load failure is tracked keyed on the image URL itself
-                // (remember(link.imageUrl), not a plain boolean) so a
-                // re-scrape that hands the link a different URL starts
-                // fresh instead of the card staying pinned to the favicon
-                // fallback forever.
-                var imageLoadFailed by remember(link.imageUrl) { mutableStateOf(false) }
-                val hasImage = !link.imageUrl.isNullOrBlank() && !imageLoadFailed
-                Box(
-                    modifier = Modifier
-                        .padding(5.dp)
-                        .fillMaxHeight(),
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(if (hasImage) link.imageUrl else faviconUrl(link.url))
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = link.title,
-                        contentScale = if (hasImage) ContentScale.Crop else ContentScale.Fit,
-                        onError = { if (hasImage) imageLoadFailed = true },
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .defaultMinSize(minHeight = 104.dp)
-                            .width(116.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (hasImage) {
-                                    MaterialTheme.colorScheme.surfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
-                                }
-                            )
-                            .then(if (hasImage) Modifier else Modifier.padding(32.dp)),
-                    )
+            // Selection check / refresh spinner / pinned star are library-
+            // grid-only concerns, so they're drawn here via the overlay
+            // slot rather than living inside the shared body - trash has
+            // none of the three.
+            LinkCardBody(
+                link = link,
+                thumbnailOverlay = {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = selected,
                         enter = fadeIn(),
@@ -322,39 +311,155 @@ internal fun LinkCard(
                                 .size(14.dp),
                         )
                     }
-                }
+                },
+            )
+        }
+    }
+}
 
-                // Details
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 7.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-                ) {
-                    CategoryBadge(category = link.category)
+/**
+ * Thumbnail + category badge + title + summary - the part of a link's card
+ * that is identical between the library grid and trash (`TrashSheet`).
+ * Everything that differs between those two contexts - selection, refresh
+ * spinner, pinned star, swipe-to-dismiss, the outer `Card`, entrance/press
+ * animation, and read/unread dimming - stays with the caller. [thumbnailOverlay]
+ * is where the library grid draws its selection/refresh/pin badges on top
+ * of the thumbnail; trash passes none.
+ */
+@Composable
+internal fun LinkCardBody(
+    link: LinkEntity,
+    modifier: Modifier = Modifier,
+    thumbnailOverlay: @Composable BoxScope.() -> Unit = {},
+) {
+    // IntrinsicSize.Min lets the thumbnail stretch to exactly the row's
+    // content height (edge to edge minus a small aesthetic gap) instead of
+    // floating as a small square in empty space.
+    Row(
+        modifier = modifier
+            .height(IntrinsicSize.Min)
+            // animateContentSize: text appearing after a scrape/
+            // classification grows the card smoothly instead of snapping.
+            .animateContentSize(),
+    ) {
+        // Thumbnail (or favicon placeholder) with selection / refresh
+        // overlays. Fills the card height; 5dp gap on all sides.
+        // Load failure is tracked keyed on the image URL itself
+        // (remember(link.imageUrl), not a plain boolean) so a
+        // re-scrape that hands the link a different URL starts
+        // fresh instead of the card staying pinned to the favicon
+        // fallback forever.
+        var imageLoadFailed by remember(link.imageUrl) { mutableStateOf(false) }
+        val hasImage = !link.imageUrl.isNullOrBlank() && !imageLoadFailed
 
-                    Spacer(Modifier.height(6.dp))
+        // The thumbnail's rendered height, re-measured (and reset to
+        // unmeasured) whenever the image URL changes - same keying as
+        // imageLoadFailed above, for the same reason.
+        var thumbnailHeightPx by remember(link.imageUrl) { mutableStateOf(0) }
 
-                    Text(
-                        text = displayTitle(link.title, link.url),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+        Box(
+            modifier = Modifier
+                .padding(5.dp)
+                .fillMaxHeight(),
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(if (hasImage) link.imageUrl else faviconUrl(link.url))
+                    .crossfade(true)
+                    .build(),
+                contentDescription = link.title,
+                contentScale = if (hasImage) ContentScale.Crop else ContentScale.Fit,
+                onError = { if (hasImage) imageLoadFailed = true },
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .defaultMinSize(minHeight = 104.dp)
+                    .width(116.dp)
+                    .onSizeChanged { thumbnailHeightPx = it.height }
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        if (hasImage) {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                        }
                     )
+                    .then(if (hasImage) Modifier else Modifier.padding(32.dp)),
+            )
+            thumbnailOverlay()
+        }
 
-                    if (link.aiSummary.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = link.aiSummary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+        // Details
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 7.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+        ) {
+            CategoryBadge(category = link.category)
+
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                text = displayTitle(link.title, link.url),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = TITLE_MAX_LINES,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            if (link.aiSummary.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = link.aiSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = summaryMaxLines(thumbnailHeightPx),
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
+    }
+}
+
+/**
+ * How many lines the summary may use beside a thumbnail measured at
+ * [thumbnailHeightPx] pixels tall (0 before the first measurement, which
+ * lands on [MIN_SUMMARY_LINES] - the same look the card had before this
+ * ever runs).
+ *
+ * Derived from the THUMBNAIL's own height, never from the details column's
+ * height: a column-based derivation would oscillate, because more lines
+ * makes the column taller, which permits more lines, which makes it taller
+ * again. The thumbnail is measured independently of the text it sits next
+ * to, so the summary can only ever fill space the thumbnail already
+ * claimed - it can never become the Row's tallest child and grow the card.
+ * (A `BoxWithConstraints` here would read simpler, but it's a
+ * `SubcomposeLayout`, and those can't answer intrinsic-measurement queries;
+ * nesting one inside this Row's `IntrinsicSize.Min` throws.)
+ *
+ * The reservation below assumes the WORST case for everything above the
+ * summary - a full [TITLE_MAX_LINES]-line title even when it's actually
+ * one line - on purpose. Under-filling by a line is only cosmetic; reserving
+ * too little is not, because that's what lets the summary overflow past
+ * where the thumbnail ends and re-inflate the card - the exact bug this
+ * whole design exists to avoid. When in doubt, this reserves more.
+ */
+@Composable
+private fun summaryMaxLines(thumbnailHeightPx: Int): Int {
+    if (thumbnailHeightPx <= 0) return MIN_SUMMARY_LINES
+    val density = LocalDensity.current
+    val badgeStyle = MaterialTheme.typography.labelSmall
+    val titleStyle = MaterialTheme.typography.titleSmall
+    val summaryStyle = MaterialTheme.typography.bodySmall
+    return with(density) {
+        val reservedAbovePx = DETAILS_COLUMN_TOP_PADDING.toPx() +
+            DETAILS_COLUMN_BOTTOM_PADDING.toPx() +
+            badgeStyle.lineHeight.toPx() + 2 * BADGE_VERTICAL_PADDING.toPx() +
+            BADGE_TO_TITLE_SPACER.toPx() +
+            titleStyle.lineHeight.toPx() * TITLE_MAX_LINES +
+            TITLE_TO_SUMMARY_SPACER.toPx()
+        val summaryLineHeightPx = summaryStyle.lineHeight.toPx()
+        val availablePx = thumbnailHeightPx - reservedAbovePx
+        (availablePx / summaryLineHeightPx).toInt().coerceIn(MIN_SUMMARY_LINES, MAX_SUMMARY_LINES)
     }
 }
 

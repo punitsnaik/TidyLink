@@ -1,5 +1,6 @@
 package dev.punit.tidylink.ui.dashboard
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,9 +12,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.repository.LinkRepository
@@ -113,23 +116,32 @@ internal fun TrashSheet(
     }
 }
 
+/**
+ * Same card as the library grid ([LinkCardBody]), plus what trash needs on
+ * top: the days-left line and the restore / delete-forever buttons. No
+ * selection, no refresh spinner, no pin, no swipe - trash has none of
+ * those, so [LinkCardBody] is called with no thumbnail overlay.
+ */
 @Composable
 private fun TrashRow(
     item: TrashedLink,
     onRestore: () -> Unit,
     onDeleteForever: () -> Unit,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = displayTitle(item.link.title, item.link.url),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        LinkCardBody(link = item.link)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 4.dp, bottom = 6.dp),
+        ) {
             Text(
                 text = pluralStringResource(
                     R.plurals.trash_days_left,
@@ -138,20 +150,21 @@ private fun TrashRow(
                 ),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
-        }
-        IconButton(onClick = onRestore) {
-            Icon(
-                Icons.Default.Refresh,
-                contentDescription = stringResource(R.string.action_restore),
-            )
-        }
-        IconButton(onClick = onDeleteForever) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = stringResource(R.string.action_delete_forever),
-                tint = MaterialTheme.colorScheme.error,
-            )
+            IconButton(onClick = onRestore) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = stringResource(R.string.action_restore),
+                )
+            }
+            IconButton(onClick = onDeleteForever) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.action_delete_forever),
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
