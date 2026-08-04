@@ -72,13 +72,24 @@ internal fun GlassSurface(
  * text. The two sheets with local state (privacy, all-categories) do
  * not trigger the blur-behind and keep the default solid container on
  * purpose.
+ *
+ * The alpha is the whole glass effect and is a judgement call, so it
+ * is a named constant rather than a literal. 0.92 shipped first and
+ * read as a flat dark panel on a real device - the backdrop blur was
+ * there but almost nothing of it came through. 0.78 is the point where
+ * shape and colour behind the sheet are legible as blurred glass while
+ * body text still holds contrast. Going much lower puts moving colour
+ * under running text; if it is ever lowered again, check a busy
+ * library in BOTH themes, not just dark.
  */
+private const val SHEET_GLASS_ALPHA = 0.78f
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun glassSheetColor(): Color {
     val base = BottomSheetDefaults.ContainerColor
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        base.copy(alpha = 0.92f)
+        base.copy(alpha = SHEET_GLASS_ALPHA)
     } else {
         base
     }

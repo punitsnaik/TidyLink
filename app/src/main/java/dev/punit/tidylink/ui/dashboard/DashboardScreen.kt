@@ -145,8 +145,13 @@ fun DashboardScreen(
         showTidyConfirm || showDuplicatesConfirm || showBookmarkImport ||
         showTrashSheet || showEmptyTrashConfirm ||
         selectedLinkId != null || editingLinkId != null
+    // 20.dp left the backdrop only softly out of focus, and paired with a
+    // near-opaque sheet the result read as a flat panel rather than glass.
+    // 32.dp is deep enough that what shows through glassSheetColor's
+    // translucency is unmistakably blur rather than just dimmed content.
+    // Modifier.blur is a no-op below API 31, so this costs nothing there.
     val backdropBlur by animateDpAsState(
-        targetValue = if (modalOpen) 20.dp else 0.dp,
+        targetValue = if (modalOpen) 32.dp else 0.dp,
         animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
         label = "backdropBlur",
     )
