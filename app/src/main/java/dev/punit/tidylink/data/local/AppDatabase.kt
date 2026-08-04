@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [LinkEntity::class, LinkFtsEntity::class, TrashedLinkEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
         val ALL_MIGRATIONS: Array<Migration>
             get() = arrayOf(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                MIGRATION_6_7,
+                MIGRATION_6_7, MIGRATION_7_8,
             )
 
         /** v2: indexed dedupeKey (fast duplicate checks) + pinned flag. */
@@ -201,6 +201,67 @@ abstract class AppDatabase : RoomDatabase() {
                         "SELECT `id`, `url`, `title`, `description`, `imageUrl`, `category`, " +
                         "`aiSummary`, `timestamp`, `dedupeKey`, `pinned`, `scrapeAttempts`, " +
                         "`isRead`, `note` FROM `links`"
+                )
+                db.execSQL("DROP TABLE `links`")
+                db.execSQL("ALTER TABLE `_new_links` RENAME TO `links`")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_links_dedupeKey` ON `links` (`dedupeKey`)"
+                )
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `links_fts` USING FTS4(" +
+                        "`title` TEXT NOT NULL, `description` TEXT NOT NULL, " +
+                        "`category` TEXT NOT NULL, `aiSummary` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, tokenize=unicode61, content=`links`)"
+                )
+                db.execSQL("INSERT INTO `links_fts`(`links_fts`) VALUES('rebuild')")
+            }
+        }
+
+        /**
+         * v8: drops `isRead`. Same 12-step recreate as MIGRATION_6_7, and for
+         * the same reason - `ALTER TABLE ... DROP COLUMN` needs SQLite 3.35
+         * (API 34) and minSdk is 29.
+         *
+         * One difference worth stating so nobody "optimises" it away:
+         * `isRead` is NOT one of the FTS columns (the index covers title,
+         * description, category, aiSummary, note), so `links_fts`'s own
+         * definition is byte-identical to v7. It still has to be dropped
+         * before the copy and rebuilt after it, because the copy reassigns
+         * every rowid and the external-content index references `links` by
+         * rowid. Skipping the rebuild silently empties search for every
+         * pre-upgrade link - the MIGRATION_4_5 / MIGRATION_6_7 trap.
+         *
+         * The INSERT's column list is spelled out rather than `SELECT *` so a
+         * future column added above the old `isRead` position cannot shift
+         * values one slot sideways.
+         *
+         * Existing read state is destroyed. That is the point of the change.
+         *
+         * Must match the generated 8.json exactly; Room validates it.
+         */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `links_fts`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `_new_links` (" +
+                        "`id` TEXT NOT NULL, `url` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                        "`description` TEXT NOT NULL, `imageUrl` TEXT, " +
+                        "`category` TEXT NOT NULL, `aiSummary` TEXT NOT NULL, " +
+                        "`timestamp` INTEGER NOT NULL, " +
+                        "`dedupeKey` TEXT NOT NULL DEFAULT '', " +
+                        "`pinned` INTEGER NOT NULL DEFAULT 0, " +
+                        "`scrapeAttempts` INTEGER NOT NULL DEFAULT 0, " +
+                        "`note` TEXT NOT NULL DEFAULT '', " +
+                        "PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "INSERT INTO `_new_links` (" +
+                        "`id`, `url`, `title`, `description`, `imageUrl`, `category`, " +
+                        "`aiSummary`, `timestamp`, `dedupeKey`, `pinned`, `scrapeAttempts`, " +
+                        "`note`) " +
+                        "SELECT `id`, `url`, `title`, `description`, `imageUrl`, `category`, " +
+                        "`aiSummary`, `timestamp`, `dedupeKey`, `pinned`, `scrapeAttempts`, " +
+                        "`note` FROM `links`"
                 )
                 db.execSQL("DROP TABLE `links`")
                 db.execSQL("ALTER TABLE `_new_links` RENAME TO `links`")

@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -365,14 +364,6 @@ fun DashboardScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = viewModel::markSelectedRead) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = stringResource(
-                                    R.string.action_mark_selected_read
-                                ),
-                            )
-                        }
                         IconButton(onClick = { showMoveDialog = true }) {
                             Icon(
                                 Icons.Default.Edit,
@@ -883,10 +874,6 @@ fun DashboardScreen(
                 onDismiss = { selectedLinkId = null },
                 onOpen = {
                     selectedLinkId = null
-                    // Marked read here rather than by a separate gesture:
-                    // read state that has to be maintained by hand doesn't
-                    // get maintained, and the unread filter would rot.
-                    viewModel.markRead(link)
                     openLink(context, link.url)
                 },
                 // Keep the sheet open: updated details animate in place.
@@ -899,7 +886,6 @@ fun DashboardScreen(
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
-                onToggleRead = { viewModel.toggleRead(link) },
                 onImageFailed = { failed -> viewModel.recoverThumbnail(failed) },
             )
         }

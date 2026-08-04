@@ -309,9 +309,7 @@ class LinkRepository(
 
     suspend fun setPinned(id: String, pinned: Boolean) = linkDao.setPinned(id, pinned)
 
-    suspend fun setRead(id: String, isRead: Boolean) = linkDao.setRead(id, isRead)
 
-    suspend fun markRead(ids: List<String>) = linkDao.markRead(ids)
 
     /**
      * One-time upgrade helper (run at app start): fills the indexed
