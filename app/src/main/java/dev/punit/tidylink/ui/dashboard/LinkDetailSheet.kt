@@ -175,6 +175,11 @@ internal fun LinkDetailSheet(
                 },
         ) { shown ->
             val hasImage = !shown.imageUrl.isNullOrBlank()
+            // verticalScroll stays on THIS Column, not hoisted up next to
+            // .weight(...) on AnimatedContent above. rememberScrollState()
+            // is per-composable-instance, so scoping it here means each
+            // swipe gets a fresh scroll position; hoisting it would carry
+            // the previous link's scroll offset into the next one.
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
@@ -326,27 +331,35 @@ internal fun LinkDetailSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp)
-                .semantics {
-                    customActions = buildList {
-                        if (hasPrev) {
-                            add(CustomAccessibilityAction(previousLabel) {
-                                navDirection = -1
-                                onNavigate(-1)
-                                true
-                            })
-                        }
-                        if (hasNext) {
-                            add(CustomAccessibilityAction(nextLabel) {
-                                navDirection = 1
-                                onNavigate(1)
-                                true
-                            })
-                        }
-                    }
-                },
+                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp),
         ) {
-            Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+            // customActions lives on the Button, not the Column above: the
+            // Column merges no descendants and TalkBack only offers the
+            // action list of the node it actually focuses, which is this
+            // Button (it merges its own descendants and is first in the bar).
+            Button(
+                onClick = onOpen,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics {
+                        customActions = buildList {
+                            if (hasPrev) {
+                                add(CustomAccessibilityAction(previousLabel) {
+                                    navDirection = -1
+                                    onNavigate(-1)
+                                    true
+                                })
+                            }
+                            if (hasNext) {
+                                add(CustomAccessibilityAction(nextLabel) {
+                                    navDirection = 1
+                                    onNavigate(1)
+                                    true
+                                })
+                            }
+                        }
+                    },
+            ) {
                 if (source.isPlayable) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
