@@ -178,6 +178,10 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 
+    // Frosted glass (backdrop blur)
+    implementation(libs.haze)
+    implementation(libs.haze.materials)
+
     testImplementation(libs.junit)
 
     // Room migration tests - instrumented, because ALTER TABLE DROP COLUMN
