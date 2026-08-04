@@ -122,6 +122,7 @@ internal fun LinkCard(
     onLongClick: () -> Unit,
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
+    onImageFailed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Press feedback: card gently scales down while held.
@@ -312,6 +313,7 @@ internal fun LinkCard(
                         )
                     }
                 },
+                onImageFailed = onImageFailed,
             )
         }
     }
@@ -331,6 +333,9 @@ internal fun LinkCardBody(
     link: LinkEntity,
     modifier: Modifier = Modifier,
     thumbnailOverlay: @Composable BoxScope.() -> Unit = {},
+    // Defaults to nothing so trash cards stay inert: re-scraping a link the
+    // user has deleted would be work nobody asked for.
+    onImageFailed: () -> Unit = {},
 ) {
     // IntrinsicSize.Min lets the thumbnail stretch to exactly the row's
     // content height (edge to edge minus a small aesthetic gap) instead of
@@ -369,7 +374,16 @@ internal fun LinkCardBody(
                     .build(),
                 contentDescription = link.title,
                 contentScale = if (hasImage) ContentScale.Crop else ContentScale.Fit,
-                onError = { if (hasImage) imageLoadFailed = true },
+                // A stored URL that won't load is the one broken-thumbnail
+                // case the background sweep can't detect (a dead URL is
+                // still a non-null URL), so the failure is reported up for
+                // a one-shot re-scrape as well as swapped for the favicon.
+                onError = {
+                    if (hasImage) {
+                        imageLoadFailed = true
+                        onImageFailed()
+                    }
+                },
                 modifier = Modifier
                     .fillMaxHeight()
                     .defaultMinSize(minHeight = 104.dp)

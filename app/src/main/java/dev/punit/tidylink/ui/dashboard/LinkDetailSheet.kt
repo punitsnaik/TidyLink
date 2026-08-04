@@ -114,6 +114,10 @@ internal fun LinkDetailSheet(
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleRead: () -> Unit,
+    // Takes the link whose image failed rather than closing over [link]:
+    // mid-swipe the sheet is rendering a neighbour, and recovering the
+    // wrong row would be a silent no-op that looks like a working fix.
+    onImageFailed: (LinkEntity) -> Unit,
 ) {
     val context = LocalContext.current
     val source = linkSourceOf(link.url)
@@ -218,7 +222,13 @@ internal fun LinkDetailSheet(
                             .build(),
                         contentDescription = shown.title,
                         contentScale = ContentScale.Crop,
-                        onError = { imageLoadFailed = true },
+                        // Same one-shot recovery as the grid card: a URL
+                        // that won't load is invisible to the sweep, whose
+                        // retry predicate is `imageUrl IS NULL`.
+                        onError = {
+                            imageLoadFailed = true
+                            onImageFailed(shown)
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f)

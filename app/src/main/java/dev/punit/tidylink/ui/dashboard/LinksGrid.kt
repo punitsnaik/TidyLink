@@ -60,6 +60,10 @@ internal fun LinksGrid(
     uiState: LinkUiState,
     viewModel: LinkViewModel,
     onOpenDetail: (String) -> Unit,
+    // Deletes are routed up to DashboardScreen's confirmation dialog rather
+    // than straight to the ViewModel - a swipe is far too easy to trigger by
+    // accident for a one-way trip, undo snackbar or not.
+    onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
     animateEntrance: Boolean = true,
     header: (@Composable () -> Unit)? = null,
@@ -107,7 +111,8 @@ internal fun LinksGrid(
                 showActions = !uiState.isSelectionMode,
                 isRefreshing = link.id in uiState.refreshingIds,
                 onRefresh = { viewModel.refreshLink(link) },
-                onDelete = { viewModel.deleteLink(link) },
+                onDelete = { onRequestDelete(link) },
+                onImageFailed = { viewModel.recoverThumbnail(link) },
                 onClick = {
                     if (uiState.isSelectionMode) {
                         viewModel.toggleSelection(link.id)

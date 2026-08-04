@@ -134,6 +134,17 @@
     <string name="action_empty_trash">Empty</string>
     <string name="dialog_empty_trash_title">Empty the trash?</string>
     <string name="dialog_empty_trash_body">Every link in the trash will be permanently deleted. This can\'t be undone.</string>
+    <string name="action_delete">Delete</string>
+    <string name="dialog_delete_title">Move to trash?</string>
+    <plurals name="dialog_delete_body">
+        <item quantity="one">The link stays in the trash for 90 days, then goes for good.</item>
+        <item quantity="other">These %d links stay in the trash for 90 days, then go for good.</item>
+    </plurals>
+    <string name="dialog_delete_forever_title">Delete permanently?</string>
+    <plurals name="dialog_delete_forever_body">
+        <item quantity="one">This link will be deleted for good. This can\'t be undone.</item>
+        <item quantity="other">These %d links will be deleted for good. This can\'t be undone.</item>
+    </plurals>
     <string name="settings_section_help">Help</string>
     <string name="settings_section_about">About</string>
     <string name="settings_show_intro_title">Show intro again</string>

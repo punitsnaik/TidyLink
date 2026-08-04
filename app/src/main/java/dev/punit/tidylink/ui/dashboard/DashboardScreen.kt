@@ -74,6 +74,18 @@ import kotlinx.coroutines.withContext
 /** Public repository - linked from Settings → About. */
 private const val REPO_URL = "https://github.com/punitsnaik/TidyLink"
 
+/**
+ * A delete waiting on confirmation: how many links it affects, whether it
+ * skips the trash, and what to run if the user goes ahead. One holder for
+ * every delete entry point (swipe, selection toolbar, detail sheet, trash)
+ * so they can't drift apart.
+ */
+private data class PendingDelete(
+    val count: Int,
+    val permanent: Boolean = false,
+    val confirm: () -> Unit,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
@@ -116,6 +128,11 @@ fun DashboardScreen(
     // observed from the DB below.
     var selectedLinkId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingLinkId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Every delete in the app funnels through one confirmation dialog.
+    // Deliberately NOT rememberSaveable: it holds the action to run, and a
+    // lambda can't go in a Bundle. A rotation mid-dialog cancels the delete,
+    // which is the safe direction to fail.
+    var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
 
     // Grid states live here (not inside the tab branches) so scroll
     // positions survive switching tabs.
@@ -362,7 +379,13 @@ fun DashboardScreen(
                                 contentDescription = stringResource(R.string.action_move_to_category),
                             )
                         }
-                        IconButton(onClick = viewModel::deleteSelected) {
+                        IconButton(
+                            onClick = {
+                                pendingDelete = PendingDelete(uiState.selectedIds.size) {
+                                    viewModel.deleteSelected()
+                                }
+                            },
+                        ) {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = stringResource(R.string.action_delete_selected),
@@ -428,6 +451,9 @@ fun DashboardScreen(
                             onShowToolsSheet = { showToolsSheet = true },
                             onShowAiProviders = { showAiProviders = true },
                             onOpenDetail = { selectedLinkId = it },
+                            onRequestDelete = { link ->
+                                pendingDelete = PendingDelete(1) { viewModel.deleteLink(link) }
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding),
@@ -450,6 +476,9 @@ fun DashboardScreen(
                                     uiState = uiState,
                                     viewModel = viewModel,
                                     onOpenDetail = { selectedLinkId = it },
+                                    onRequestDelete = { link ->
+                                        pendingDelete = PendingDelete(1) { viewModel.deleteLink(link) }
+                                    },
                                     animateEntrance = false,
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -570,6 +599,63 @@ fun DashboardScreen(
         )
     }
 
+    // One dialog for every delete. A swipe on a card is the easy-to-trigger
+    // one and the reason this exists, but routing the selection toolbar,
+    // detail sheet and trash through the same holder keeps them consistent.
+    pendingDelete?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = {
+                Text(
+                    stringResource(
+                        if (pending.permanent) {
+                            R.string.dialog_delete_forever_title
+                        } else {
+                            R.string.dialog_delete_title
+                        }
+                    )
+                )
+            },
+            text = {
+                Text(
+                    pluralStringResource(
+                        if (pending.permanent) {
+                            R.plurals.dialog_delete_forever_body
+                        } else {
+                            R.plurals.dialog_delete_body
+                        },
+                        pending.count,
+                        pending.count,
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = null
+                        pending.confirm()
+                    },
+                ) {
+                    Text(
+                        stringResource(
+                            if (pending.permanent) {
+                                R.string.action_delete_forever
+                            } else {
+                                R.string.action_delete
+                            }
+                        ),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     // Tidy-up is a bulk, non-undoable rename - always confirm first.
     if (showTidyConfirm) {
         AlertDialog(
@@ -597,7 +683,11 @@ fun DashboardScreen(
         TrashSheet(
             trashed = trashed,
             onRestore = viewModel::restoreFromTrash,
-            onDeleteForever = viewModel::deleteFromTrashForever,
+            onDeleteForever = { ids ->
+                pendingDelete = PendingDelete(ids.size, permanent = true) {
+                    viewModel.deleteFromTrashForever(ids)
+                }
+            },
             onEmptyTrash = {
                 showTrashSheet = false
                 showEmptyTrashConfirm = true
@@ -802,12 +892,15 @@ fun DashboardScreen(
                 // Keep the sheet open: updated details animate in place.
                 onRefresh = { viewModel.refreshLink(link) },
                 onDelete = {
-                    selectedLinkId = null
-                    viewModel.deleteLink(link)
+                    pendingDelete = PendingDelete(1) {
+                        selectedLinkId = null
+                        viewModel.deleteLink(link)
+                    }
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
                 onToggleRead = { viewModel.toggleRead(link) },
+                onImageFailed = { failed -> viewModel.recoverThumbnail(failed) },
             )
         }
     }

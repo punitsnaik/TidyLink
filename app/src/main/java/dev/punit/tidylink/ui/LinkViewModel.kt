@@ -383,6 +383,36 @@ class LinkViewModel(
     }
 
     /**
+     * Links whose thumbnail we have already tried to recover this session.
+     *
+     * In-memory on purpose. It bounds the retries with no schema change and
+     * no counter to migrate, and a fresh launch grants one more attempt -
+     * which is exactly what someone reopening the app hoping for pictures
+     * wants. Only touched from the main thread (Compose load callbacks).
+     */
+    private val attemptedThumbnailRecoveries = mutableSetOf<String>()
+
+    /**
+     * Called when a card or the detail sheet fails to LOAD a stored
+     * thumbnail: re-scrapes that link once, in case the URL has expired or
+     * gone dead. Silent - a blank thumbnail is not worth a snackbar, and
+     * this fires while the user is scrolling.
+     */
+    fun recoverThumbnail(link: LinkEntity) {
+        if (!attemptedThumbnailRecoveries.add(link.id)) return
+        viewModelScope.launch {
+            try {
+                repository.recoverThumbnail(link)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Offline or the site is down. The favicon fallback is
+                // already on screen; the next launch may do better.
+            }
+        }
+    }
+
+    /**
      * Manual refresh: merges duplicates and re-fetches details for every
      * link that still needs them (never scraped, image-less under the
      * attempt cap, or unclassified).
