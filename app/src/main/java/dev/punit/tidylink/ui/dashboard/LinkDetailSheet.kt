@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -221,7 +220,14 @@ internal fun LinkDetailSheet(
                             .crossfade(true)
                             .build(),
                         contentDescription = shown.title,
-                        contentScale = ContentScale.Crop,
+                        // FillWidth + no aspectRatio: the image keeps its own
+                        // proportions and the box takes whatever height that
+                        // implies. Crop inside a fixed 16:9 box cut the top and
+                        // bottom off anything that wasn't 16:9 - which is most
+                        // OG images (1.91:1) and every portrait screenshot.
+                        // Deliberately uncapped: a long infographic renders in
+                        // full and the user scrolls past it.
+                        contentScale = ContentScale.FillWidth,
                         // Same one-shot recovery as the grid card: a URL
                         // that won't load is invisible to the sweep, whose
                         // retry predicate is `imageUrl IS NULL`.
@@ -231,7 +237,6 @@ internal fun LinkDetailSheet(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
                             .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
