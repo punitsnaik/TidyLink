@@ -1,6 +1,7 @@
 package dev.punit.tidylink.ui.dashboard
 
 import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.BottomSheetDefaults
@@ -21,7 +22,7 @@ import dev.chrisbanes.haze.materials.HazeMaterials
 
 /**
  * Frosted surface: real backdrop blur of the content behind it on API 31+,
- * Haze's translucent fallback tint below. Must be a SIBLING of the
+ * opaque surfaceContainerHighest below API 31. Must be a SIBLING of the
  * hazeSource node, never a descendant - a descendant would capture its own
  * pixels into the blur.
  */
@@ -38,9 +39,18 @@ internal fun GlassSurface(
         modifier = modifier
             .shadow(elevation, shape, clip = false)
             .clip(shape)
-            .hazeEffect(
-                state = hazeState,
-                style = HazeMaterials.thin(MaterialTheme.colorScheme.surface),
+            .then(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeMaterials.thin(MaterialTheme.colorScheme.surface),
+                    )
+                } else {
+                    // No blur below S: Haze's thin tint alone is too
+                    // transparent for text on top of it. Fall back to the
+                    // opaque high tone the pre-glass design used.
+                    Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                }
             )
             .border(
                 width = 1.dp,

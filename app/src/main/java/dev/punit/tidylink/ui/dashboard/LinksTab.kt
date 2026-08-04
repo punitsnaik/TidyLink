@@ -23,11 +23,18 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -45,8 +52,9 @@ internal val SEARCH_OVERLAY_HEIGHT = 72.dp
 /**
  * The Links tab: a Box where the link grid fills the space and scrolls
  * underneath a floating glass search bar owned by DashboardScreen. The grid
- * clears the bar with SEARCH_OVERLAY_HEIGHT of top content padding, and its
- * FIRST ITEM is the header (title row, provider banner, search, result
+ * clears the bar with a measured top content padding (the bar's real height,
+ * not an asserted constant), and its FIRST ITEM is the header (title row,
+ * provider banner, search, result
  * count, category tiles). The progress bar is a separate overlay, pinned
  * just below the search bar on an opaque surface so it does not blend into
  * whatever the grid is scrolling underneath it.
@@ -69,6 +77,7 @@ internal fun LinksTab(
     providerBannerDismissed: Boolean,
     onDismissProviderBanner: () -> Unit,
     gridState: LazyGridState,
+    searchBarHeight: Dp,
     onShowSortSheet: () -> Unit,
     onShowToolsSheet: () -> Unit,
     onShowAiProviders: () -> Unit,
@@ -98,10 +107,17 @@ internal fun LinksTab(
     }
 
     Box(modifier = modifier) {
+        val density = LocalDensity.current
+        var progressBandHeight by remember { mutableStateOf(0.dp) }
+        val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
+        val bandExtra = if (bandVisible) progressBandHeight else 0.dp
+        val contentTop =
+            (if (uiState.isSelectionMode) 12.dp else searchBarHeight + 8.dp) + bandExtra
+
         val listIsEmpty = lazyLinks.itemCount == 0 &&
             lazyLinks.loadState.refresh !is LoadState.Loading
         if (listIsEmpty) {
-            Column(modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT + 8.dp)) {
+            Column(modifier = Modifier.padding(top = contentTop)) {
                 header?.let {
                     Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
                 }
@@ -126,7 +142,7 @@ internal fun LinksTab(
                 viewModel = viewModel,
                 onOpenDetail = onOpenDetail,
                 header = header,
-                topPadding = if (uiState.isSelectionMode) 12.dp else SEARCH_OVERLAY_HEIGHT + 8.dp,
+                topPadding = contentTop,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -134,15 +150,18 @@ internal fun LinksTab(
         // Progress overlays the grid just below the search bar - thin, and
         // only present while work is running.
         AnimatedVisibility(
-            visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
+            visible = bandVisible,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
-            modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT),
+            modifier = Modifier.padding(top = if (uiState.isSelectionMode) 0.dp else searchBarHeight),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
+                    .onSizeChanged {
+                        progressBandHeight = with(density) { it.height.toDp() }
+                    }
                     .padding(horizontal = 16.dp, vertical = 2.dp),
             ) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
