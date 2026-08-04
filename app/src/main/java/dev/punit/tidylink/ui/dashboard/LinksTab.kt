@@ -5,10 +5,13 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -34,6 +37,9 @@ import dev.punit.tidylink.ui.LinkViewModel
 
 /** Gutter shared by the grid's contentPadding and the empty-state header. */
 private val HEADER_GUTTER = 16.dp
+
+/** Height reserved for the floating glass search bar overlaying the grid. */
+internal val SEARCH_OVERLAY_HEIGHT = 72.dp
 
 /**
  * The Links tab: a pinned progress bar, then the link grid whose FIRST ITEM
@@ -86,20 +92,50 @@ internal fun LinksTab(
         }
     }
 
-    Column(modifier = modifier) {
-        // One bar covers both foreground work (save/import) and background
-        // enrichment - the two used to be separate blocks, which stacked
-        // into a double bar whenever a save overlapped a bulk-import sweep.
-        // Pinned above the scrolling header so activity stays visible no
-        // matter where the list is. Animated in/out so the list doesn't jump.
+    Box(modifier = modifier) {
+        val listIsEmpty = lazyLinks.itemCount == 0 &&
+            lazyLinks.loadState.refresh !is LoadState.Loading
+        if (listIsEmpty) {
+            Column(modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT)) {
+                header?.let {
+                    Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
+                }
+                EmptyState(
+                    text = stringResource(
+                        if (query.isNotBlank() || uiState.selectedCategory != null) {
+                            R.string.empty_filtered
+                        } else {
+                            R.string.empty_no_links
+                        }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
+        } else {
+            LinksGrid(
+                lazyLinks = lazyLinks,
+                gridState = gridState,
+                uiState = uiState,
+                viewModel = viewModel,
+                onOpenDetail = onOpenDetail,
+                header = header,
+                topPadding = SEARCH_OVERLAY_HEIGHT + 8.dp,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // Progress overlays the grid just below the search bar - thin, and
+        // only present while work is running.
         AnimatedVisibility(
             visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
+            modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT),
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                // Caption only when we know the remaining count.
                 if (uiState.pendingEnrichment > 0) {
                     Text(
                         text = pluralStringResource(
@@ -113,42 +149,6 @@ internal fun LinksTab(
                     )
                 }
             }
-        }
-
-        val listIsEmpty = lazyLinks.itemCount == 0 &&
-            lazyLinks.loadState.refresh !is LoadState.Loading
-        if (listIsEmpty) {
-            // No grid to host the header, but search and the category
-            // filter must stay reachable - that's the only way back from a
-            // filter that matches nothing. Supplies its own gutter, which
-            // the grid otherwise contributes via contentPadding.
-            header?.let {
-                Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
-            }
-            EmptyState(
-                text = stringResource(
-                    if (query.isNotBlank() || uiState.selectedCategory != null) {
-                        R.string.empty_filtered
-                    } else {
-                        R.string.empty_no_links
-                    }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
-        } else {
-            LinksGrid(
-                lazyLinks = lazyLinks,
-                gridState = gridState,
-                uiState = uiState,
-                viewModel = viewModel,
-                onOpenDetail = onOpenDetail,
-                header = header,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f),
-            )
         }
     }
 }
@@ -221,13 +221,7 @@ private fun LinksHeader(
             )
         }
 
-        SearchBar(
-            query = query,
-            onQueryChange = viewModel::search,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-        )
+        Spacer(Modifier.height(4.dp))
 
         // A failed query must not read as "0 results" - that's how a broken
         // search query hid in plain sight.
