@@ -165,6 +165,8 @@
     <string name="share_chooser_title">Share link</string>
     <string name="cd_selected">Selected</string>
     <string name="cd_pinned">Pinned</string>
+    <string name="cd_previous_link">Previous link</string>
+    <string name="cd_next_link">Next link</string>
 
     <!-- Dialogs -->
     <string name="dialog_edit_title">Edit link</string>

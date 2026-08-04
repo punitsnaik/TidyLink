@@ -8,13 +8,20 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +56,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,9 +68,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,8 +85,16 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
+import dev.punit.tidylink.ui.theme.Motion
 import java.text.DateFormat
 import java.util.Date
+
+/**
+ * How far a finger has to travel before the sheet changes link. Below this
+ * the drag is ignored outright - no rubber-band, no partial follow, because
+ * the sheet is not a pager and a half-committed card would just look broken.
+ */
+private val SWIPE_THRESHOLD = 80.dp
 
 /** Full-detail bottom sheet shown when a card is tapped. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,7 +115,13 @@ internal fun LinkDetailSheet(
 ) {
     val context = LocalContext.current
     val source = linkSourceOf(link.url)
-    val hasImage = !link.imageUrl.isNullOrBlank()
+    val swipeThresholdPx = with(LocalDensity.current) { SWIPE_THRESHOLD.toPx() }
+    // Which way the last swipe went, so the incoming card enters from the
+    // side the finger came from.
+    var navDirection by remember { mutableIntStateOf(1) }
+    var dragTotal by remember { mutableFloatStateOf(0f) }
+    val previousLabel = stringResource(R.string.cd_previous_link)
+    val nextLabel = stringResource(R.string.cd_next_link)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -102,149 +133,191 @@ internal fun LinkDetailSheet(
     ) {
         // Details scroll; the action bar below stays pinned so the CTA is
         // always reachable without scrolling.
-        Column(
+        //
+        // AnimatedContent swaps ONLY this body, keyed on the link id - the
+        // ModalBottomSheet around it never leaves composition, so a swipe
+        // never replays its slide-up enter animation. contentKey (not
+        // targetState equality) is what stops an ordinary field update - a
+        // refresh landing, a background classification - from sliding the
+        // whole card sideways.
+        AnimatedContent(
+            targetState = link,
+            contentKey = { it.id },
+            transitionSpec = {
+                (
+                    slideInHorizontally(Motion.spatialSpring()) { width -> navDirection * width } +
+                        fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing))
+                    ).togetherWith(
+                    slideOutHorizontally(Motion.spatialSpring()) { width -> -navDirection * width } +
+                        fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing))
+                ) using SizeTransform(clip = false)
+            },
+            label = "detailSwipe",
             modifier = Modifier
                 .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .animateContentSize(),
-        ) {
-            if (hasImage) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(link.imageUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = link.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                )
-            } else {
-                // No thumbnail: compact favicon banner instead of an empty
-                // 16:9 grey box.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(
-                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
-                        )
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                ) {
+                .pointerInput(hasPrev, hasNext, swipeThresholdPx) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragTotal = 0f },
+                        onDragEnd = {
+                            val direction = when {
+                                dragTotal <= -swipeThresholdPx && hasNext -> 1
+                                dragTotal >= swipeThresholdPx && hasPrev -> -1
+                                else -> 0
+                            }
+                            if (direction != 0) {
+                                navDirection = direction
+                                onNavigate(direction)
+                            }
+                            dragTotal = 0f
+                        },
+                        onDragCancel = { dragTotal = 0f },
+                    ) { _, dragAmount -> dragTotal += dragAmount }
+                },
+        ) { shown ->
+            val hasImage = !shown.imageUrl.isNullOrBlank()
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .animateContentSize(),
+            ) {
+                if (hasImage) {
                     AsyncImage(
-                        model = faviconUrl(link.url),
-                        contentDescription = null,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(shown.imageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = shown.title,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = domainOf(link.url),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = isBusy,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
-            ) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CategoryBadge(category = link.category)
-                Text(
-                    text = stringResource(
-                        R.string.saved_on,
-                        DateFormat.getDateInstance().format(Date(link.timestamp)),
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = displayTitle(link.title, link.url),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-
-            // The user's own words go ABOVE the machine's, in a tinted card
-            // with a heading. Everything else on this sheet was written by
-            // the page or the LLM, so the note has to be unmistakably
-            // theirs - dropping it into the same run of grey body text
-            // would bury the one part they wrote.
-            if (link.note.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = stringResource(R.string.detail_note_heading),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
+                } else {
+                    // No thumbnail: compact favicon banner instead of an empty
+                    // 16:9 grey box.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                            )
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                    ) {
+                        AsyncImage(
+                            model = faviconUrl(shown.url),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(8.dp)),
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.width(12.dp))
                         Text(
-                            text = link.note,
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = domainOf(shown.url),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
                     }
                 }
-            }
 
-            if (link.aiSummary.isNotBlank()) {
+                AnimatedVisibility(
+                    visible = isBusy,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CategoryBadge(category = shown.category)
+                    Text(
+                        text = stringResource(
+                            R.string.saved_on,
+                            DateFormat.getDateInstance().format(Date(shown.timestamp)),
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 Spacer(Modifier.height(8.dp))
+
                 Text(
-                    text = link.aiSummary,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = displayTitle(shown.title, shown.url),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
                 )
-            }
 
-            if (link.description.isNotBlank() && link.description != link.aiSummary) {
+                // The user's own words go ABOVE the machine's, in a tinted card
+                // with a heading. Everything else on this sheet was written by
+                // the page or the LLM, so the note has to be unmistakably
+                // theirs - dropping it into the same run of grey body text
+                // would bury the one part they wrote.
+                if (shown.note.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = stringResource(R.string.detail_note_heading),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = shown.note,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+
+                if (shown.aiSummary.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = shown.aiSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                if (shown.description.isNotBlank() && shown.description != shown.aiSummary) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = shown.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = link.description,
+                    text = shown.url,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+
+                Spacer(Modifier.height(8.dp))
             }
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = link.url,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(Modifier.height(8.dp))
         }
 
         // Pinned action area (outside the scrollable content).
@@ -253,7 +326,25 @@ internal fun LinkDetailSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp)
+                .semantics {
+                    customActions = buildList {
+                        if (hasPrev) {
+                            add(CustomAccessibilityAction(previousLabel) {
+                                navDirection = -1
+                                onNavigate(-1)
+                                true
+                            })
+                        }
+                        if (hasNext) {
+                            add(CustomAccessibilityAction(nextLabel) {
+                                navDirection = 1
+                                onNavigate(1)
+                                true
+                            })
+                        }
+                    }
+                },
         ) {
             Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
                 if (source.isPlayable) {
