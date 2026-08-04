@@ -38,7 +38,7 @@ internal fun SortSheet(
     onSelect: (SortOrder) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = glassSheetColor()) {
         Column(
             modifier = Modifier
                 .navigationBarsPadding()

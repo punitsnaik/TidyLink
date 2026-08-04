@@ -61,7 +61,7 @@ internal fun ToolsSheet(
     onOpenTrash: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = glassSheetColor()) {
         Column(
             modifier = Modifier
                 .navigationBarsPadding()
