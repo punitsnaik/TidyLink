@@ -477,11 +477,16 @@ class LinkRepository(
      */
     suspend fun recoverThumbnail(existing: LinkEntity) {
         val scraped = recoverySemaphore.withPermit { scraper.scrapeMetadata(existing.url) }
-        val image = recoveredImageUrl(existing.imageUrl, scraped.imageUrl) ?: return
-        // Re-read: the sweep or a manual refresh may have rewritten this
-        // row while the scrape was in flight, and a stale copy would undo
-        // their work.
+        // Re-read BEFORE deciding, not just before writing. The sweep or a
+        // manual refresh may have rewritten this row while the scrape was
+        // in flight, and comparing against the stale `existing.imageUrl`
+        // would judge our result "different" from a URL nobody holds any
+        // more - overwriting their fresh one with ours. Comparing against
+        // the re-read row closes that: if they already fixed the image, our
+        // scrape either agrees (and writes nothing) or loses to the newer
+        // value on the next failure, which is the safe direction.
         val current = linkDao.getById(existing.id) ?: return
+        val image = recoveredImageUrl(current.imageUrl, scraped.imageUrl) ?: return
         linkDao.upsert(current.copy(imageUrl = image))
     }
 
