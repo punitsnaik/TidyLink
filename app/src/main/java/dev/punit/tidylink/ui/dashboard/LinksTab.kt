@@ -82,6 +82,7 @@ internal fun LinksTab(
     onShowToolsSheet: () -> Unit,
     onShowAiProviders: () -> Unit,
     onOpenDetail: (String) -> Unit,
+    onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
@@ -141,6 +142,7 @@ internal fun LinksTab(
                 uiState = uiState,
                 viewModel = viewModel,
                 onOpenDetail = onOpenDetail,
+                onRequestDelete = onRequestDelete,
                 header = header,
                 topPadding = contentTop,
                 modifier = Modifier.fillMaxSize(),
