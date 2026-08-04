@@ -60,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,6 +121,15 @@ internal fun LinkDetailSheet(
     // side the finger came from.
     var navDirection by remember { mutableIntStateOf(1) }
     var dragTotal by remember { mutableFloatStateOf(0f) }
+    // pointerInput's block is keyed on Unit so an in-flight drag is never
+    // cancelled by a key change - which means the block captures its lambdas
+    // ONCE. onNavigate closes over the caller's list index, so reading the
+    // captured copy navigated from a frozen position and the sheet appeared
+    // to stop swiping after a card or two. These read the current values on
+    // every gesture instead.
+    val currentOnNavigate by rememberUpdatedState(onNavigate)
+    val currentHasPrev by rememberUpdatedState(hasPrev)
+    val currentHasNext by rememberUpdatedState(hasNext)
     val previousLabel = stringResource(R.string.cd_previous_link)
     val nextLabel = stringResource(R.string.cd_next_link)
 
@@ -155,23 +165,29 @@ internal fun LinkDetailSheet(
             label = "detailSwipe",
             modifier = Modifier
                 .weight(1f, fill = false)
-                .pointerInput(hasPrev, hasNext, swipeThresholdPx) {
+                .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragStart = { dragTotal = 0f },
                         onDragEnd = {
                             val direction = when {
-                                dragTotal <= -swipeThresholdPx && hasNext -> 1
-                                dragTotal >= swipeThresholdPx && hasPrev -> -1
+                                dragTotal <= -swipeThresholdPx && currentHasNext -> 1
+                                dragTotal >= swipeThresholdPx && currentHasPrev -> -1
                                 else -> 0
                             }
                             if (direction != 0) {
                                 navDirection = direction
-                                onNavigate(direction)
+                                currentOnNavigate(direction)
                             }
                             dragTotal = 0f
                         },
                         onDragCancel = { dragTotal = 0f },
-                    ) { _, dragAmount -> dragTotal += dragAmount }
+                    ) { change, dragAmount ->
+                        // Consume it, or the same drag also reaches the ModalBottomSheet's
+                        // drag-to-dismiss and a swipe can close the sheet instead of moving
+                        // to the next link.
+                        change.consume()
+                        dragTotal += dragAmount
+                    }
                 },
         ) { shown ->
             val hasImage = !shown.imageUrl.isNullOrBlank()
