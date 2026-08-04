@@ -5,6 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,9 +43,13 @@ private val HEADER_GUTTER = 16.dp
 internal val SEARCH_OVERLAY_HEIGHT = 72.dp
 
 /**
- * The Links tab: a pinned progress bar, then the link grid whose FIRST ITEM
- * is the header (title row, provider banner, search, result count, category
- * tiles).
+ * The Links tab: a Box where the link grid fills the space and scrolls
+ * underneath a floating glass search bar owned by DashboardScreen. The grid
+ * clears the bar with SEARCH_OVERLAY_HEIGHT of top content padding, and its
+ * FIRST ITEM is the header (title row, provider banner, search, result
+ * count, category tiles). The progress bar is a separate overlay, pinned
+ * just below the search bar on an opaque surface so it does not blend into
+ * whatever the grid is scrolling underneath it.
  *
  * The header is a grid item on purpose, not a collapsing block above the
  * grid. It used to be an AnimatedVisibility driven by nested-scroll deltas,
@@ -96,7 +101,7 @@ internal fun LinksTab(
         val listIsEmpty = lazyLinks.itemCount == 0 &&
             lazyLinks.loadState.refresh !is LoadState.Loading
         if (listIsEmpty) {
-            Column(modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT)) {
+            Column(modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT + 8.dp)) {
                 header?.let {
                     Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
                 }
@@ -121,7 +126,7 @@ internal fun LinksTab(
                 viewModel = viewModel,
                 onOpenDetail = onOpenDetail,
                 header = header,
-                topPadding = SEARCH_OVERLAY_HEIGHT + 8.dp,
+                topPadding = if (uiState.isSelectionMode) 12.dp else SEARCH_OVERLAY_HEIGHT + 8.dp,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -134,7 +139,12 @@ internal fun LinksTab(
             exit = shrinkVertically() + fadeOut(),
             modifier = Modifier.padding(top = SEARCH_OVERLAY_HEIGHT),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+            ) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 if (uiState.pendingEnrichment > 0) {
                     Text(
