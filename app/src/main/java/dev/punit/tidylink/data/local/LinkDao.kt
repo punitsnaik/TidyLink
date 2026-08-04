@@ -145,10 +145,6 @@ interface LinkDao {
     @Query("SELECT COUNT(*) FROM links WHERE scrapeAttempts = 0")
     fun countNeverScraped(): Flow<Int>
 
-    /** One-shot variant, used at app start to resume interrupted sweeps. */
-    @Query("SELECT COUNT(*) FROM links WHERE scrapeAttempts = 0")
-    suspend fun countNeverScrapedOnce(): Int
-
     @Query("UPDATE links SET pinned = :pinned WHERE id = :id")
     suspend fun setPinned(id: String, pinned: Boolean)
 
