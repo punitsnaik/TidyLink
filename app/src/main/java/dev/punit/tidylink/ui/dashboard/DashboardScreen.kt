@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,6 +48,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
@@ -113,6 +115,20 @@ fun DashboardScreen(
 
     // One source feeds every glass surface (pill nav, pinned search bar).
     val hazeState = remember { HazeState() }
+
+    // Any modal window open -> the content behind it blurs (API 31+; a
+    // no-op below, where the standard scrim still dims). Derived, not
+    // stored: it must never go stale against a dismissed sheet.
+    val modalOpen = showAddDialog || showSortSheet || showThemeSheet ||
+        showToolsSheet || showAiProviders || showMoveDialog ||
+        showTidyConfirm || showDuplicatesConfirm || showBookmarkImport ||
+        showTrashSheet || showEmptyTrashConfirm ||
+        selectedLinkId != null || editingLinkId != null
+    val backdropBlur by animateDpAsState(
+        targetValue = if (modalOpen) 20.dp else 0.dp,
+        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+        label = "backdropBlur",
+    )
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
     // (added manually, shared in, or imported) - but not on deletes.
@@ -351,7 +367,7 @@ fun DashboardScreen(
             )
         },
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().blur(backdropBlur)) {
             Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                 AnimatedContent(
                     targetState = currentTab,
