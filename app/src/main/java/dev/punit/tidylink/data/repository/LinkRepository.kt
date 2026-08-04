@@ -112,6 +112,20 @@ internal fun mergeDuplicateGroup(group: List<LinkEntity>): LinkEntity? {
     ).let { if (it.dedupeKey.isNotBlank()) it else it.copy(dedupeKey = UrlCanonicalizer.dedupeKey(it.url)) }
 }
 
+/**
+ * What to write back after a thumbnail-recovery scrape, or null to leave
+ * the row untouched. Pure so the never-downgrade rule is unit-testable
+ * without a fake DAO - same reasoning as [mergeDuplicateGroup].
+ *
+ * Null [scraped] is the offline case and MUST leave [existing] alone.
+ * That is the whole safety argument for recovering thumbnails from a
+ * failed image load: a tunnel or airplane mode fires the load-failure
+ * callback for every visible card at once, and if this ever returned
+ * null-as-a-value it would erase a screenful of good URLs.
+ */
+internal fun recoveredImageUrl(existing: String?, scraped: String?): String? =
+    scraped?.takeIf { it.isNotBlank() && it != existing }
+
 class LinkRepository(
     private val linkDao: LinkDao,
     private val scraper: LinkScraperService,
@@ -137,6 +151,13 @@ class LinkRepository(
      */
     private val sweepMutex = Mutex()
 
+    /**
+     * Caps concurrent thumbnail recoveries. These are triggered by cards
+     * rendering, so flinging past a screenful of broken images would
+     * otherwise fire a scrape per card at once.
+     */
+    private val recoverySemaphore = Semaphore(RECOVERY_CONCURRENCY)
+
     /** Paged, SQL-side filtered and sorted view of the library. */
     fun pagingSource(
         searchQuery: String,
@@ -157,12 +178,19 @@ class LinkRepository(
     fun duplicateCount(): Flow<Int> = linkDao.countDuplicates()
 
     /**
-     * True when links are still waiting for their first scrape - checked at
-     * app start so an interrupted sweep (process killed mid-import, or rows
-     * upgraded from a pre-v3 schema) is resumed instead of leaving the
-     * "fetching details" banner up with no worker behind it.
+     * True when there is anything worth (re-)scraping - checked at app start
+     * so an interrupted sweep (process killed mid-import, or rows upgraded
+     * from a pre-v3 schema) is resumed instead of leaving the "fetching
+     * details" banner up with no worker behind it.
+     *
+     * Deliberately mirrors [LinkDao.getScrapeCandidates] via
+     * [LinkDao.countScrapeCandidates], not "never scraped" alone - a link
+     * scraped once that came back with no image has scrapeAttempts = 1 and
+     * would never re-open this gate, even though the sweep's own candidate
+     * query would still retry it.
      */
-    suspend fun hasPendingEnrichment(): Boolean = linkDao.countNeverScrapedOnce() > 0
+    suspend fun hasPendingEnrichment(): Boolean =
+        linkDao.countScrapeCandidates(MAX_SCRAPE_ATTEMPTS) > 0
 
     /** Live view of a single link - keeps the detail sheet current. */
     fun observeLink(id: String): Flow<LinkEntity?> = linkDao.observeById(id)
@@ -281,9 +309,7 @@ class LinkRepository(
 
     suspend fun setPinned(id: String, pinned: Boolean) = linkDao.setPinned(id, pinned)
 
-    suspend fun setRead(id: String, isRead: Boolean) = linkDao.setRead(id, isRead)
 
-    suspend fun markRead(ids: List<String>) = linkDao.markRead(ids)
 
     /**
      * One-time upgrade helper (run at app start): fills the indexed
@@ -423,6 +449,43 @@ class LinkRepository(
         )
         linkDao.upsert(updated)
         return updated
+    }
+
+    /**
+     * Re-scrapes one link because its stored thumbnail failed to LOAD.
+     *
+     * This is the one broken-image case the sweep structurally cannot see.
+     * [LinkDao.getScrapeCandidates] retries on `imageUrl IS NULL`, and a
+     * dead, expired or hotlink-blocked URL is still a non-null URL - so
+     * the row looks finished forever and "Fetch missing details" reports
+     * "all up to date" while the card sits blank. Only the image loader
+     * knows the URL is bad, so the recovery has to start there.
+     *
+     * Scrape only, deliberately no classification: this fires from a card
+     * appearing on screen, and an LLM call per blank card would be slow
+     * and would spend the user's API quota on work already done.
+     *
+     * Writes nothing unless the scrape produced a DIFFERENT usable URL
+     * (see [recoveredImageUrl]), which is what makes it safe offline.
+     *
+     * `scrapeAttempts` is left alone on purpose: that counter exists to
+     * cap the sweep's retries of image-LESS rows, and these rows are not
+     * image-less. The caller bounds this instead - one attempt per link
+     * per app session.
+     */
+    suspend fun recoverThumbnail(existing: LinkEntity) {
+        val scraped = recoverySemaphore.withPermit { scraper.scrapeMetadata(existing.url) }
+        // Re-read BEFORE deciding, not just before writing. The sweep or a
+        // manual refresh may have rewritten this row while the scrape was
+        // in flight, and comparing against the stale `existing.imageUrl`
+        // would judge our result "different" from a URL nobody holds any
+        // more - overwriting their fresh one with ours. Comparing against
+        // the re-read row closes that: if they already fixed the image, our
+        // scrape either agrees (and writes nothing) or loses to the newer
+        // value on the next failure, which is the safe direction.
+        val current = linkDao.getById(existing.id) ?: return
+        val image = recoveredImageUrl(current.imageUrl, scraped.imageUrl) ?: return
+        linkDao.upsert(current.copy(imageUrl = image))
     }
 
     /**
@@ -786,13 +849,27 @@ class LinkRepository(
         const val FALLBACK_CATEGORY = "Uncategorized"
         private const val RETRY_WORK_NAME = "classification_retry"
         private const val SCRAPE_CONCURRENCY = 4
+
+        /**
+         * Lower than [SCRAPE_CONCURRENCY]: recoveries are triggered by
+         * scrolling, so they compete with the UI rather than running in a
+         * worker the user is waiting on.
+         */
+        private const val RECOVERY_CONCURRENCY = 2
         private const val CLASSIFY_BATCH_SIZE = 8
 
         /** One DB write (and one list invalidation) per this many scrapes. */
         private const val WRITE_BATCH_SIZE = 8
 
-        /** Re-scrape ceiling for links that never get a thumbnail. */
-        private const val MAX_SCRAPE_ATTEMPTS = 3
+        /**
+         * Re-scrape ceiling for links that never get a thumbnail. Raised
+         * from 3 to 6 - since there is no separate reset mechanism, raising
+         * the cap doubles as the reset for rows already stuck at the old
+         * ceiling: a row at scrapeAttempts = 3 is under the new cap, so it
+         * becomes a scrape candidate again with no migration, no one-time
+         * flag, and no bookkeeping.
+         */
+        private const val MAX_SCRAPE_ATTEMPTS = 6
 
         /** Target ceiling for the taxonomy when consolidating. */
         private const val MAX_CATEGORIES = 12

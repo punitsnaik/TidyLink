@@ -1,7 +1,5 @@
 package dev.punit.tidylink.ui.dashboard
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,12 +21,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
+import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,9 +60,14 @@ internal fun LinksGrid(
     uiState: LinkUiState,
     viewModel: LinkViewModel,
     onOpenDetail: (String) -> Unit,
+    // Deletes are routed up to DashboardScreen's confirmation dialog rather
+    // than straight to the ViewModel - a swipe is far too easy to trigger by
+    // accident for a one-way trip, undo snackbar or not.
+    onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
     animateEntrance: Boolean = true,
     header: (@Composable () -> Unit)? = null,
+    topPadding: Dp = 12.dp,
 ) {
     // Entrance stagger only applies to the first screenful on launch; cards
     // composed later (while scrolling) must not re-animate or scrolling
@@ -79,7 +84,7 @@ internal fun LinksGrid(
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Adaptive(minSize = 340.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
@@ -106,7 +111,8 @@ internal fun LinksGrid(
                 showActions = !uiState.isSelectionMode,
                 isRefreshing = link.id in uiState.refreshingIds,
                 onRefresh = { viewModel.refreshLink(link) },
-                onDelete = { viewModel.deleteLink(link) },
+                onDelete = { onRequestDelete(link) },
+                onImageFailed = { viewModel.recoverThumbnail(link) },
                 onClick = {
                     if (uiState.isSelectionMode) {
                         viewModel.toggleSelection(link.id)
@@ -116,12 +122,9 @@ internal fun LinksGrid(
                 },
                 onLongClick = { viewModel.toggleSelection(link.id) },
                 modifier = Modifier.animateItem(
-                    fadeInSpec = tween(220),
-                    fadeOutSpec = tween(180),
-                    placementSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
+                    fadeInSpec = tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing),
+                    fadeOutSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing),
+                    placementSpec = Motion.spatialSpring(),
                 ),
             )
         }
@@ -140,7 +143,7 @@ internal fun LinksGrid(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .padding(top = 4.dp, bottom = 96.dp),
+                .padding(top = topPadding, bottom = 96.dp),
         )
     }
 }

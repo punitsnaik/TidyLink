@@ -115,6 +115,22 @@ interface LinkDao {
     )
     suspend fun getScrapeCandidates(maxAttempts: Int): List<LinkEntity>
 
+    /**
+     * Same question as [getScrapeCandidates], just a count. Deliberately
+     * kept a character-for-character mirror of that query's WHERE clause
+     * (including :maxAttempts) - this is what drives the startup gate
+     * (`LinkRepository.hasPendingEnrichment`), and if the two ever
+     * disagree the gate either opens for work the sweep won't do, or
+     * stays shut on work it would have done.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM links
+        WHERE scrapeAttempts = 0 OR (imageUrl IS NULL AND scrapeAttempts < :maxAttempts)
+        """
+    )
+    suspend fun countScrapeCandidates(maxAttempts: Int): Int
+
     /** Links that have been scraped but never successfully classified. */
     @Query(
         """
@@ -129,18 +145,9 @@ interface LinkDao {
     @Query("SELECT COUNT(*) FROM links WHERE scrapeAttempts = 0")
     fun countNeverScraped(): Flow<Int>
 
-    /** One-shot variant, used at app start to resume interrupted sweeps. */
-    @Query("SELECT COUNT(*) FROM links WHERE scrapeAttempts = 0")
-    suspend fun countNeverScrapedOnce(): Int
-
     @Query("UPDATE links SET pinned = :pinned WHERE id = :id")
     suspend fun setPinned(id: String, pinned: Boolean)
 
-    @Query("UPDATE links SET isRead = :isRead WHERE id = :id")
-    suspend fun setRead(id: String, isRead: Boolean)
-
-    @Query("UPDATE links SET isRead = 1 WHERE id IN (:ids)")
-    suspend fun markRead(ids: List<String>)
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     @Query("SELECT * FROM links WHERE pinned = 1 ORDER BY timestamp DESC")

@@ -1,6 +1,9 @@
 package dev.punit.tidylink.ui.dashboard
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -20,38 +23,44 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
 import dev.punit.tidylink.R
+import dev.punit.tidylink.ui.theme.Motion
 
 /** Destinations reachable from the floating pill navigation bar. */
 internal enum class DashboardTab { Links, Pinned, Settings }
 
 /**
- * Floating pill navigation: a rounded bar where the selected tab is a
- * tonal inner pill with icon + label and unselected tabs are label-only,
- * plus a separate round "+" button. Overlaid on content - the list scrolls
- * underneath. Uses the highest surface container tone (NOT inverseSurface,
- * which flips polarity and turned the bar light in dark theme): dark gray
- * pill on a dark theme, light gray on a light one - the Google Photos
- * look - and it follows dynamic color.
+ * Floating pill navigation: frosted glass over the scrolling content behind
+ * it (real backdrop blur on API 31+, Haze's translucent fallback tint on
+ * 10/11 - see GlassSurface). The selected tab is a tonal inner pill with
+ * icon + label and unselected tabs are label-only, plus a separate round
+ * "+" button. Overlaid on content - the list scrolls underneath. The
+ * selected pill uses the highest surface container tone (NOT
+ * inverseSurface, which flips polarity and turned the bar light in dark
+ * theme): dark gray on a dark theme, light gray on a light one - the
+ * Google Photos look - and it follows dynamic color.
  */
 @Composable
 internal fun BottomPillNav(
     currentTab: DashboardTab,
     onSelect: (DashboardTab) -> Unit,
     onAdd: () -> Unit,
+    hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
-        Surface(
+        GlassSurface(
+            hazeState = hazeState,
             shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shadowElevation = 6.dp,
+            elevation = 6.dp,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -67,20 +76,21 @@ internal fun BottomPillNav(
             }
         }
         Spacer(Modifier.width(10.dp))
-        Surface(
-            onClick = onAdd,
+        GlassSurface(
+            hazeState = hazeState,
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            shadowElevation = 6.dp,
+            elevation = 6.dp,
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier
+                    .size(56.dp)
+                    .clickable(role = Role.Button, onClick = onAdd),
             ) {
                 Icon(
                     Icons.Default.Add,
                     contentDescription = stringResource(R.string.action_add_link),
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -106,19 +116,29 @@ private fun PillTab(
         DashboardTab.Pinned -> Icons.Default.Star
         DashboardTab.Settings -> Icons.Default.Settings
     }
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = if (selected) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            Color.Transparent
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0f)
         },
-        contentColor = if (selected) {
+        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+        label = "pillColor",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
+        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+        label = "pillContentColor",
+    )
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = containerColor,
+        contentColor = contentColor,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

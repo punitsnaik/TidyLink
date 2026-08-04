@@ -4,13 +4,22 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -38,7 +47,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -46,16 +58,32 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
+import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Public repository - linked from Settings → About. */
 private const val REPO_URL = "https://github.com/punitsnaik/TidyLink"
+
+/**
+ * A delete waiting on confirmation: how many links it affects, whether it
+ * skips the trash, and what to run if the user goes ahead. One holder for
+ * every delete entry point (swipe, selection toolbar, detail sheet, trash)
+ * so they can't drift apart.
+ */
+private data class PendingDelete(
+    val count: Int,
+    val permanent: Boolean = false,
+    val confirm: () -> Unit,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +94,12 @@ fun DashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val query by viewModel.searchQueryInput.collectAsStateWithLifecycle()
     val lazyLinks = viewModel.links.collectAsLazyPagingItems()
+    // Hoisted out of the Pinned tab branch: the detail sheet is composed at
+    // the bottom of this function and needs whichever list the user tapped
+    // from to work out the swipe neighbour. Cost is one always-collected
+    // paging query; the alternative is threading a callback through two
+    // more layers.
+    val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -93,11 +127,52 @@ fun DashboardScreen(
     // observed from the DB below.
     var selectedLinkId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingLinkId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Every delete in the app funnels through one confirmation dialog.
+    // Deliberately NOT rememberSaveable: it holds the action to run, and a
+    // lambda can't go in a Bundle. A rotation mid-dialog cancels the delete,
+    // which is the safe direction to fail.
+    var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
 
     // Grid states live here (not inside the tab branches) so scroll
     // positions survive switching tabs.
     val gridState = rememberLazyGridState()
     val pinnedGridState = rememberLazyGridState()
+
+    // One source feeds every glass surface (pill nav, pinned search bar).
+    val hazeState = remember { HazeState() }
+
+    // The glass bar's real height: the M3 TextField grows with the
+    // system font scale, so the reserved band is measured, never
+    // asserted. SEARCH_OVERLAY_HEIGHT is only the first-frame guess.
+    val density = LocalDensity.current
+    var searchBarHeight by remember { mutableStateOf(SEARCH_OVERLAY_HEIGHT) }
+
+    // Any modal window open -> the content behind it blurs (API 31+; a
+    // no-op below, where the standard scrim still dims). Derived, not
+    // stored: it must never go stale against a dismissed sheet.
+    //
+    // The blur Modifier itself is applied conditionally further down, not
+    // unconditionally at radius 0: Modifier.blur keeps an offscreen
+    // graphics layer alive even at 0dp, so the layer must exist only while
+    // a modal is open or animating closed, not as a permanent steady-state
+    // cost on every frame the app draws.
+    val modalOpen = showAddDialog || showSortSheet || showThemeSheet ||
+        showToolsSheet || showAiProviders || showMoveDialog ||
+        showTidyConfirm || showDuplicatesConfirm || showBookmarkImport ||
+        showTrashSheet || showEmptyTrashConfirm ||
+        selectedLinkId != null || editingLinkId != null
+    // Paired with SHEET_GLASS_ALPHA - the two are one effect and should be
+    // tuned together. 20.dp left the backdrop only softly out of focus and
+    // read as a flat panel; 40.dp is deep enough that what shows through
+    // the sheet is unmistakably blur rather than dimmed content, and deep
+    // enough that individual cards behind it stop being identifiable, which
+    // is what keeps text on the sheet readable at a low alpha.
+    // Modifier.blur is a no-op below API 31, so this costs nothing there.
+    val backdropBlur by animateDpAsState(
+        targetValue = if (modalOpen) 40.dp else 0.dp,
+        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+        label = "backdropBlur",
+    )
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
     // (added manually, shared in, or imported) - but not on deletes.
@@ -273,7 +348,9 @@ fun DashboardScreen(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier),
         topBar = {
             if (uiState.isSelectionMode && currentTab != DashboardTab.Settings) {
                 TopAppBar(
@@ -287,21 +364,19 @@ fun DashboardScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = viewModel::markSelectedRead) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = stringResource(
-                                    R.string.action_mark_selected_read
-                                ),
-                            )
-                        }
                         IconButton(onClick = { showMoveDialog = true }) {
                             Icon(
                                 Icons.Default.Edit,
                                 contentDescription = stringResource(R.string.action_move_to_category),
                             )
                         }
-                        IconButton(onClick = viewModel::deleteSelected) {
+                        IconButton(
+                            onClick = {
+                                pendingDelete = PendingDelete(uiState.selectedIds.size) {
+                                    viewModel.deleteSelected()
+                                }
+                            },
+                        ) {
                             Icon(
                                 Icons.Default.Delete,
                                 contentDescription = stringResource(R.string.action_delete_selected),
@@ -337,104 +412,159 @@ fun DashboardScreen(
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-        when (currentTab) {
-            DashboardTab.Links -> LinksTab(
-                viewModel = viewModel,
-                uiState = uiState,
-                query = query,
-                lazyLinks = lazyLinks,
-                hasProviders = providers.isNotEmpty(),
-                providerBannerDismissed = providerBannerDismissed,
-                onDismissProviderBanner = { providerBannerDismissed = true },
-                gridState = gridState,
-                onShowSortSheet = { showSortSheet = true },
-                onShowToolsSheet = { showToolsSheet = true },
-                onShowAiProviders = { showAiProviders = true },
-                onOpenDetail = { selectedLinkId = it },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
+            Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+                AnimatedContent(
+                    targetState = currentTab,
+                    transitionSpec = {
+                        // M3 fade-through: outgoing fades fast, incoming
+                        // fades in with a slight scale-up after it.
+                        (fadeIn(tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)) +
+                            scaleIn(
+                                initialScale = 0.94f,
+                                animationSpec = tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing),
+                            ))
+                            .togetherWith(fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)))
+                    },
+                    label = "tabTransition",
+                ) { tab ->
+                    when (tab) {
+                        DashboardTab.Links -> LinksTab(
+                            viewModel = viewModel,
+                            uiState = uiState,
+                            query = query,
+                            lazyLinks = lazyLinks,
+                            hasProviders = providers.isNotEmpty(),
+                            providerBannerDismissed = providerBannerDismissed,
+                            onDismissProviderBanner = { providerBannerDismissed = true },
+                            gridState = gridState,
+                            searchBarHeight = searchBarHeight,
+                            onShowSortSheet = { showSortSheet = true },
+                            onShowToolsSheet = { showToolsSheet = true },
+                            onShowAiProviders = { showAiProviders = true },
+                            onOpenDetail = { selectedLinkId = it },
+                            onRequestDelete = { link ->
+                                pendingDelete = PendingDelete(1) { viewModel.deleteLink(link) }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
 
-            DashboardTab.Pinned -> {
-                val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
-                val pinnedEmpty = lazyPinned.itemCount == 0 &&
-                    lazyPinned.loadState.refresh !is LoadState.Loading
-                if (pinnedEmpty) {
-                    EmptyState(
-                        text = stringResource(R.string.empty_no_pinned),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                    )
-                } else {
-                    LinksGrid(
-                        lazyLinks = lazyPinned,
-                        gridState = pinnedGridState,
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        onOpenDetail = { selectedLinkId = it },
-                        animateEntrance = false,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
+                        DashboardTab.Pinned -> {
+                            val pinnedEmpty = lazyPinned.itemCount == 0 &&
+                                lazyPinned.loadState.refresh !is LoadState.Loading
+                            if (pinnedEmpty) {
+                                EmptyState(
+                                    text = stringResource(R.string.empty_no_pinned),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding),
+                                )
+                            } else {
+                                LinksGrid(
+                                    lazyLinks = lazyPinned,
+                                    gridState = pinnedGridState,
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onOpenDetail = { selectedLinkId = it },
+                                    onRequestDelete = { link ->
+                                        pendingDelete = PendingDelete(1) { viewModel.deleteLink(link) }
+                                    },
+                                    animateEntrance = false,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding),
+                                )
+                            }
+                        }
+
+                        DashboardTab.Settings -> SettingsTab(
+                            themeMode = themeMode,
+                            onThemeClick = { showThemeSheet = true },
+                            onAiProviders = { showAiProviders = true },
+                            onExport = { exportLauncher.launch("tidylink-backup.json") },
+                            onImportBookmarks = { showBookmarkImport = true },
+                            backupState = backupState,
+                            // Turning it ON always re-opens the picker: the row is also
+                            // the recovery path when the chosen folder has gone away.
+                            onToggleAutoBackup = {
+                                if (backupState.enabled) {
+                                    viewModel.disableBackup()
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            resources.getString(R.string.msg_auto_backup_disabled)
+                                        )
+                                    }
+                                } else {
+                                    backupFolderLauncher.launch(null)
+                                }
+                            },
+                            onImportJson = {
+                                importLauncher.launch(
+                                    arrayOf("application/json", "application/octet-stream")
+                                )
+                            },
+                            onShowIntro = viewModel::replayIntro,
+                            onOpenRepo = { openLink(context, REPO_URL) },
+                            updateState = updateState,
+                            onUpdateClick = {
+                                when (val state = updateState) {
+                                    is UpdateState.Available -> viewModel.downloadUpdate()
+                                    is UpdateState.ReadyToInstall -> installApk(context, state.file)
+                                    // Row is disabled in these states; nothing to do.
+                                    UpdateState.Checking, is UpdateState.Downloading -> Unit
+                                    else -> viewModel.checkForUpdates()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
+                    }
+                }
+            }
+
+            // Floating glass search bar - Links tab only, stands down in
+            // selection mode (the contextual TopAppBar takes over). Fixed
+            // height by construction: the old header jank came from
+            // animating header HEIGHT, and this bar never resizes.
+            AnimatedVisibility(
+                visible = currentTab == DashboardTab.Links && !uiState.isSelectionMode,
+                enter = fadeIn(
+                    tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)
+                ),
+                exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                GlassSurface(
+                    hazeState = hazeState,
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier
+                        .padding(top = innerPadding.calculateTopPadding())
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .fillMaxWidth()
+                        .onSizeChanged {
+                            searchBarHeight = with(density) { it.height.toDp() } + 16.dp
+                        },
+                ) {
+                    SearchBar(
+                        query = query,
+                        onQueryChange = viewModel::search,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
 
-            DashboardTab.Settings -> SettingsTab(
-                themeMode = themeMode,
-                onThemeClick = { showThemeSheet = true },
-                onAiProviders = { showAiProviders = true },
-                onExport = { exportLauncher.launch("tidylink-backup.json") },
-                onImportBookmarks = { showBookmarkImport = true },
-                backupState = backupState,
-                // Turning it ON always re-opens the picker: the row is also
-                // the recovery path when the chosen folder has gone away.
-                onToggleAutoBackup = {
-                    if (backupState.enabled) {
-                        viewModel.disableBackup()
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                resources.getString(R.string.msg_auto_backup_disabled)
-                            )
-                        }
-                    } else {
-                        backupFolderLauncher.launch(null)
-                    }
-                },
-                onImportJson = {
-                    importLauncher.launch(
-                        arrayOf("application/json", "application/octet-stream")
-                    )
-                },
-                onShowIntro = viewModel::replayIntro,
-                onOpenRepo = { openLink(context, REPO_URL) },
-                updateState = updateState,
-                onUpdateClick = {
-                    when (val state = updateState) {
-                        is UpdateState.Available -> viewModel.downloadUpdate()
-                        is UpdateState.ReadyToInstall -> installApk(context, state.file)
-                        // Row is disabled in these states; nothing to do.
-                        UpdateState.Checking, is UpdateState.Downloading -> Unit
-                        else -> viewModel.checkForUpdates()
-                    }
-                },
+            BottomPillNav(
+                currentTab = currentTab,
+                onSelect = { currentTab = it },
+                onAdd = { showAddDialog = true },
+                hazeState = hazeState,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp),
             )
-        }
-
-        BottomPillNav(
-            currentTab = currentTab,
-            onSelect = { currentTab = it },
-            onAdd = { showAddDialog = true },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp),
-        )
         }
     }
 
@@ -457,6 +587,63 @@ fun DashboardScreen(
                 showMoveDialog = false
             },
             onDismiss = { showMoveDialog = false },
+        )
+    }
+
+    // One dialog for every delete. A swipe on a card is the easy-to-trigger
+    // one and the reason this exists, but routing the selection toolbar,
+    // detail sheet and trash through the same holder keeps them consistent.
+    pendingDelete?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = {
+                Text(
+                    stringResource(
+                        if (pending.permanent) {
+                            R.string.dialog_delete_forever_title
+                        } else {
+                            R.string.dialog_delete_title
+                        }
+                    )
+                )
+            },
+            text = {
+                Text(
+                    pluralStringResource(
+                        if (pending.permanent) {
+                            R.plurals.dialog_delete_forever_body
+                        } else {
+                            R.plurals.dialog_delete_body
+                        },
+                        pending.count,
+                        pending.count,
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = null
+                        pending.confirm()
+                    },
+                ) {
+                    Text(
+                        stringResource(
+                            if (pending.permanent) {
+                                R.string.action_delete_forever
+                            } else {
+                                R.string.action_delete
+                            }
+                        ),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
         )
     }
 
@@ -487,7 +674,11 @@ fun DashboardScreen(
         TrashSheet(
             trashed = trashed,
             onRestore = viewModel::restoreFromTrash,
-            onDeleteForever = viewModel::deleteFromTrashForever,
+            onDeleteForever = { ids ->
+                pendingDelete = PendingDelete(ids.size, permanent = true) {
+                    viewModel.deleteFromTrashForever(ids)
+                }
+            },
             onEmptyTrash = {
                 showTrashSheet = false
                 showEmptyTrashConfirm = true
@@ -640,41 +831,62 @@ fun DashboardScreen(
     }
 
     selectedLinkId?.let { id ->
+        // Swipe navigates the list the user actually tapped from, so it
+        // follows the active search, category filter and sort.
+        val activeList = if (currentTab == DashboardTab.Pinned) lazyPinned else lazyLinks
+        val currentIndex = activeList.itemSnapshotList.items.indexOfFirst { it.id == id }
+        // Touching the current index lets Paging prefetch around it
+        // (prefetchDistance = 90), so a long swipe streak keeps finding
+        // neighbours instead of stopping dead at the loaded edge.
+        // Return value intentionally unused - the read itself is the point.
+        if (currentIndex >= 0) activeList[currentIndex]
+
         // Observe the LIVE entity so refreshes / background classification
         // update the open sheet; survives rotation because only the id is
         // saved. If the link is deleted underneath, the sheet closes.
         val observedLink by remember(id) { viewModel.observeLink(id) }
             .collectAsStateWithLifecycle(initialValue = null)
+        // Hold the last loaded entity. observeLink restarts at null on every
+        // id change, and letting LinkDetailSheet leave composition for that
+        // one frame replays the ModalBottomSheet slide-up enter animation on
+        // every single swipe. Deliberately NOT keyed on id.
+        var shownLink by remember { mutableStateOf<LinkEntity?>(null) }
         var everLoaded by remember(id) { mutableStateOf(false) }
         LaunchedEffect(observedLink) {
-            if (observedLink != null) {
+            val loaded = observedLink
+            if (loaded != null) {
                 everLoaded = true
+                shownLink = loaded
             } else if (everLoaded) {
                 selectedLinkId = null
             }
         }
-        observedLink?.let { link ->
+        shownLink?.let { link ->
             LinkDetailSheet(
                 link = link,
                 isBusy = link.id in uiState.refreshingIds,
+                hasPrev = detailNeighborIndex(currentIndex, -1, activeList.itemCount) != null,
+                hasNext = detailNeighborIndex(currentIndex, 1, activeList.itemCount) != null,
+                onNavigate = { direction ->
+                    detailNeighborIndex(currentIndex, direction, activeList.itemCount)
+                        ?.let { target -> activeList[target]?.let { selectedLinkId = it.id } }
+                },
                 onDismiss = { selectedLinkId = null },
                 onOpen = {
                     selectedLinkId = null
-                    // Marked read here rather than by a separate gesture:
-                    // read state that has to be maintained by hand doesn't
-                    // get maintained, and the unread filter would rot.
-                    viewModel.markRead(link)
                     openLink(context, link.url)
                 },
                 // Keep the sheet open: updated details animate in place.
                 onRefresh = { viewModel.refreshLink(link) },
                 onDelete = {
-                    selectedLinkId = null
-                    viewModel.deleteLink(link)
+                    pendingDelete = PendingDelete(1) {
+                        selectedLinkId = null
+                        viewModel.deleteLink(link)
+                    }
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
-                onToggleRead = { viewModel.toggleRead(link) },
+                onImageFailed = { failed -> viewModel.recoverThumbnail(failed) },
             )
         }
     }

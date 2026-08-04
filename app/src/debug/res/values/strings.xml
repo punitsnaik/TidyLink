@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only overrides. This source set is merged over src/main for debug
+  builds only, so app_name here renames the launcher icon without touching
+  the shipped string.
+
+  The label matters: with applicationIdSuffix ".debug" the two installs look
+  identical on the home screen otherwise, and it is genuinely easy to test a
+  fix against the wrong one.
+-->
+<resources>
+    <string name="app_name">TidyLink Debug</string>
+</resources>
