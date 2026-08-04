@@ -1,7 +1,5 @@
 package dev.punit.tidylink.ui.dashboard
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +28,7 @@ import androidx.paging.compose.itemKey
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
+import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -118,12 +117,9 @@ internal fun LinksGrid(
                 },
                 onLongClick = { viewModel.toggleSelection(link.id) },
                 modifier = Modifier.animateItem(
-                    fadeInSpec = tween(220),
-                    fadeOutSpec = tween(180),
-                    placementSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
+                    fadeInSpec = tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing),
+                    fadeOutSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing),
+                    placementSpec = Motion.spatialSpring(),
                 ),
             )
         }
