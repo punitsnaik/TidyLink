@@ -157,12 +157,19 @@ class LinkRepository(
     fun duplicateCount(): Flow<Int> = linkDao.countDuplicates()
 
     /**
-     * True when links are still waiting for their first scrape - checked at
-     * app start so an interrupted sweep (process killed mid-import, or rows
-     * upgraded from a pre-v3 schema) is resumed instead of leaving the
-     * "fetching details" banner up with no worker behind it.
+     * True when there is anything worth (re-)scraping - checked at app start
+     * so an interrupted sweep (process killed mid-import, or rows upgraded
+     * from a pre-v3 schema) is resumed instead of leaving the "fetching
+     * details" banner up with no worker behind it.
+     *
+     * Deliberately mirrors [LinkDao.getScrapeCandidates] via
+     * [LinkDao.countScrapeCandidates], not "never scraped" alone - a link
+     * scraped once that came back with no image has scrapeAttempts = 1 and
+     * would never re-open this gate, even though the sweep's own candidate
+     * query would still retry it.
      */
-    suspend fun hasPendingEnrichment(): Boolean = linkDao.countNeverScrapedOnce() > 0
+    suspend fun hasPendingEnrichment(): Boolean =
+        linkDao.countScrapeCandidates(MAX_SCRAPE_ATTEMPTS) > 0
 
     /** Live view of a single link - keeps the detail sheet current. */
     fun observeLink(id: String): Flow<LinkEntity?> = linkDao.observeById(id)
@@ -791,8 +798,15 @@ class LinkRepository(
         /** One DB write (and one list invalidation) per this many scrapes. */
         private const val WRITE_BATCH_SIZE = 8
 
-        /** Re-scrape ceiling for links that never get a thumbnail. */
-        private const val MAX_SCRAPE_ATTEMPTS = 3
+        /**
+         * Re-scrape ceiling for links that never get a thumbnail. Raised
+         * from 3 to 6 - since there is no separate reset mechanism, raising
+         * the cap doubles as the reset for rows already stuck at the old
+         * ceiling: a row at scrapeAttempts = 3 is under the new cap, so it
+         * becomes a scrape candidate again with no migration, no one-time
+         * flag, and no bookkeeping.
+         */
+        private const val MAX_SCRAPE_ATTEMPTS = 6
 
         /** Target ceiling for the taxonomy when consolidating. */
         private const val MAX_CATEGORIES = 12

@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
 import java.net.URLEncoder
 
 data class ScrapedData(
@@ -129,13 +130,7 @@ class LinkScraperService {
             "meta[name=twitter:description]",
         ).orEmpty()
 
-        // absUrl resolves relative image paths against the document's base URI.
-        val imageUrl = listOf("meta[property=og:image]", "meta[name=twitter:image]")
-            .firstNotNullOfOrNull { selector ->
-                document.selectFirst(selector)
-                    ?.let { el -> el.absUrl("content").ifBlank { el.attr("content") } }
-                    ?.takeIf { it.isNotBlank() }
-            }
+        val imageUrl = extractImageUrl(document)
 
         ScrapedData(
             url = url,
@@ -157,3 +152,41 @@ class LinkScraperService {
         const val CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
     }
 }
+
+/**
+ * Where a thumbnail might be published, in fallback order. og:image wins
+ * when present; the rest are secondary tags real sites use when they skip
+ * Open Graph entirely. `link[rel=image_src]` is the only one whose URL
+ * lives in `href` rather than `content`, hence pairing a selector with its
+ * attribute instead of assuming `content` everywhere.
+ *
+ * Deliberately NOT extended with the page's first `<img>` - see
+ * PRD-thumbnail-recovery.md: that heuristic picks up spacers, tracking
+ * pixels, avatars and ad slots, and a wrong thumbnail is worse than none.
+ */
+private val IMAGE_SOURCES: List<Pair<String, String>> = listOf(
+    "meta[property=og:image]" to "content",
+    "meta[name=twitter:image]" to "content",
+    "meta[name=twitter:image:src]" to "content",
+    "meta[itemprop=image]" to "content",
+    "meta[name=msapplication-TileImage]" to "content",
+    "link[rel=image_src]" to "href",
+)
+
+/**
+ * Extracted out of [LinkScraperService]'s private `fetch` so it's reachable
+ * from a JVM unit test (jsoup parses a String with no network) without
+ * dragging network I/O into the test.
+ *
+ * `absUrl` resolves a relative path against the document's base URI; the
+ * `.ifBlank { attr(...) }` fallback covers documents with no base URI,
+ * where `absUrl` itself returns blank. `takeIf { it.isNotBlank() }` is what
+ * makes a present-but-empty attribute fall through to the next source
+ * instead of being returned as an empty string.
+ */
+internal fun extractImageUrl(document: Document): String? =
+    IMAGE_SOURCES.firstNotNullOfOrNull { (selector, attribute) ->
+        document.selectFirst(selector)
+            ?.let { el -> el.absUrl(attribute).ifBlank { el.attr(attribute) } }
+            ?.takeIf { it.isNotBlank() }
+    }
