@@ -70,9 +70,10 @@ internal fun fastScrollTargetIndex(fraction: Float, itemCount: Int): Int =
  * BACKWARDS while the list scrolls forwards - visible jitter on a short
  * library, where one item is a large share of the track.
  *
- * ponytail: [rowHeightPx] is the first visible row's height, so mixed card
- * heights make this an approximation. It stays monotonic, which is all a
- * seek bar needs; exact would mean measuring every row in the library.
+ * ponytail: [rowHeightPx] is meant to be an average over the visible rows,
+ * not one row's exact height, so mixed card heights wash out instead of
+ * skewing the estimate. Still an approximation, not a guarantee - exact
+ * would mean measuring every row in the library.
  */
 internal fun fastScrollFraction(
     firstVisibleRow: Int,
@@ -146,7 +147,13 @@ internal fun FastScroller(
                 } else {
                     0
                 },
-                rowHeightPx = firstLink.size.height,
+                // Averaged over every visible row, not just the first one -
+                // LinkCard is content-sized, so a single row's height is a
+                // noisy estimate that made the thumb step backwards as
+                // differently-sized cards scrolled past. The average is
+                // steadier frame to frame. Confirmed on-device 2026-08-04:
+                // see CLAUDE.md "SCREEN RECORDING REVIEW".
+                rowHeightPx = links.sumOf { it.size.height } / links.size,
                 totalRows = ceil(linkCount.toFloat() / columns).toInt(),
                 viewportHeightPx = info.viewportSize.height,
             )
