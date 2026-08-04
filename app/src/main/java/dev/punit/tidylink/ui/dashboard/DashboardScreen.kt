@@ -119,6 +119,12 @@ fun DashboardScreen(
     // Any modal window open -> the content behind it blurs (API 31+; a
     // no-op below, where the standard scrim still dims). Derived, not
     // stored: it must never go stale against a dismissed sheet.
+    //
+    // The blur Modifier itself is applied conditionally further down, not
+    // unconditionally at radius 0: Modifier.blur keeps an offscreen
+    // graphics layer alive even at 0dp, so the layer must exist only while
+    // a modal is open or animating closed, not as a permanent steady-state
+    // cost on every frame the app draws.
     val modalOpen = showAddDialog || showSortSheet || showThemeSheet ||
         showToolsSheet || showAiProviders || showMoveDialog ||
         showTidyConfirm || showDuplicatesConfirm || showBookmarkImport ||
@@ -367,7 +373,11 @@ fun DashboardScreen(
             )
         },
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().blur(backdropBlur)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier),
+        ) {
             Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                 AnimatedContent(
                     targetState = currentTab,
@@ -488,7 +498,7 @@ fun DashboardScreen(
                     hazeState = hazeState,
                     shape = RoundedCornerShape(28.dp),
                     modifier = Modifier
-                        .padding(innerPadding)
+                        .padding(top = innerPadding.calculateTopPadding())
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                         .fillMaxWidth(),
                 ) {
