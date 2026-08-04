@@ -195,8 +195,6 @@ class LinkRepository(
     /** Live view of a single link - keeps the detail sheet current. */
     fun observeLink(id: String): Flow<LinkEntity?> = linkDao.observeById(id)
 
-    suspend fun getLinksByIds(ids: List<String>): List<LinkEntity> = linkDao.getByIds(ids)
-
     // --- Trash ---------------------------------------------------------------
 
     /**
