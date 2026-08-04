@@ -4,11 +4,17 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
@@ -52,6 +58,7 @@ import dev.punit.tidylink.R
 import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
+import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -429,6 +436,32 @@ fun DashboardScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding),
+                    )
+                }
+            }
+
+            // Floating glass search bar - Links tab only, stands down in
+            // selection mode (the contextual TopAppBar takes over). Fixed
+            // height by construction: the old header jank came from
+            // animating header HEIGHT, and this bar never resizes.
+            AnimatedVisibility(
+                visible = currentTab == DashboardTab.Links && !uiState.isSelectionMode,
+                enter = fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)),
+                exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                GlassSurface(
+                    hazeState = hazeState,
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .fillMaxWidth(),
+                ) {
+                    SearchBar(
+                        query = query,
+                        onQueryChange = viewModel::search,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }

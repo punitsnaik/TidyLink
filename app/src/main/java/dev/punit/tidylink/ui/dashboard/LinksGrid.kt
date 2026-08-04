@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
@@ -63,6 +64,7 @@ internal fun LinksGrid(
     modifier: Modifier = Modifier,
     animateEntrance: Boolean = true,
     header: (@Composable () -> Unit)? = null,
+    topPadding: Dp = 12.dp,
 ) {
     // Entrance stagger only applies to the first screenful on launch; cards
     // composed later (while scrolling) must not re-animate or scrolling
@@ -79,7 +81,7 @@ internal fun LinksGrid(
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Adaptive(minSize = 340.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
@@ -140,7 +142,7 @@ internal fun LinksGrid(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .padding(top = 4.dp, bottom = 96.dp),
+                .padding(top = topPadding, bottom = 96.dp),
         )
     }
 }
