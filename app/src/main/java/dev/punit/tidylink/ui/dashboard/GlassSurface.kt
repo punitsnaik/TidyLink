@@ -74,15 +74,18 @@ internal fun GlassSurface(
  * purpose.
  *
  * The alpha is the whole glass effect and is a judgement call, so it
- * is a named constant rather than a literal. 0.92 shipped first and
- * read as a flat dark panel on a real device - the backdrop blur was
- * there but almost nothing of it came through. 0.78 is the point where
- * shape and colour behind the sheet are legible as blurred glass while
- * body text still holds contrast. Going much lower puts moving colour
- * under running text; if it is ever lowered again, check a busy
- * library in BOTH themes, not just dark.
+ * is a named constant rather than a literal. History, because the
+ * direction of travel matters more than the number: 0.92 shipped first
+ * and read as a flat dark panel - the backdrop blur was there but
+ * almost nothing came through. 0.78 was legibly glass but still
+ * conservative. 0.68 is the current setting, chosen on device.
+ *
+ * Below roughly 0.6 the sheet stops being a reading surface: body text
+ * sits over visibly moving colour, and it fails first in LIGHT theme on
+ * a colourful library, not in dark. Anyone lowering this further must
+ * check light theme at a large font scale before keeping it.
  */
-private const val SHEET_GLASS_ALPHA = 0.78f
+private const val SHEET_GLASS_ALPHA = 0.68f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
