@@ -170,62 +170,41 @@ class LinkViewModel(
         pagingSourceFactory = { repository.pinnedPagingSource() },
     ).flow.cachedIn(viewModelScope)
 
-    private data class TransientState(
-        val isProcessing: Boolean,
-        val isRefreshing: Boolean,
-        val message: UiMessage?,
-        val pendingUndo: List<String>,
-        val selectedIds: Set<String>,
-        val refreshingIds: Set<String> = emptySet(),
-        val sortOrder: SortOrder = SortOrder.NEWEST,
-        val pendingEnrichment: Int = 0,
-        val duplicateCount: Int = 0,
-        val trashCount: Int = 0,
-    )
-
-    /** Bundle secondary state so each combine stays within 5 flows. */
-    private val transientState = combine(
-        isProcessing, isRefreshing, message, pendingUndo, selectedIds,
-    ) { processing, refreshing, msg, undo, selected ->
-        TransientState(processing, refreshing, msg, undo, selected)
-    }.combine(refreshingIds) { transient, ids -> transient.copy(refreshingIds = ids) }
-        .combine(sortOrder) { transient, sort -> transient.copy(sortOrder = sort) }
-        .combine(repository.pendingEnrichmentCount()) { transient, pending ->
-            transient.copy(pendingEnrichment = pending)
-        }
-        .combine(repository.duplicateCount()) { transient, dupes ->
-            transient.copy(duplicateCount = dupes)
-        }
-        .combine(repository.trashCount()) { transient, trashed ->
-            transient.copy(trashCount = trashed)
-        }
-
+    /**
+     * Thirteen sources, one state. The typed [combine] overloads stop at five
+     * arguments, so the rest are chained on as copies - the same shape this
+     * already used, just against [LinkUiState] itself instead of a private
+     * duplicate of it that had to be kept in sync field for field.
+     */
     val uiState: StateFlow<LinkUiState> = combine(
         repository.getCategories(),
         searchQuery,
         selectedCategory,
-        transientState,
-    ) { categories, query, category, transient ->
+        sortOrder,
+        isProcessing,
+    ) { categories, query, category, sort, processing ->
         LinkUiState(
             categories = categories,
             searchQuery = query,
             selectedCategory = category,
-            sortOrder = transient.sortOrder,
-            isProcessing = transient.isProcessing,
-            isRefreshing = transient.isRefreshing,
-            message = transient.message,
-            pendingUndo = transient.pendingUndo,
-            selectedIds = transient.selectedIds,
-            refreshingIds = transient.refreshingIds,
-            pendingEnrichment = transient.pendingEnrichment,
-            duplicateCount = transient.duplicateCount,
-            trashCount = transient.trashCount,
+            sortOrder = sort,
+            isProcessing = processing,
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = LinkUiState(),
-    )
+    }.combine(isRefreshing) { state, v -> state.copy(isRefreshing = v) }
+        .combine(message) { state, v -> state.copy(message = v) }
+        .combine(pendingUndo) { state, v -> state.copy(pendingUndo = v) }
+        .combine(selectedIds) { state, v -> state.copy(selectedIds = v) }
+        .combine(refreshingIds) { state, v -> state.copy(refreshingIds = v) }
+        .combine(repository.pendingEnrichmentCount()) { state, v ->
+            state.copy(pendingEnrichment = v)
+        }
+        .combine(repository.duplicateCount()) { state, v -> state.copy(duplicateCount = v) }
+        .combine(repository.trashCount()) { state, v -> state.copy(trashCount = v) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = LinkUiState(),
+        )
 
     /** Immediately reflected in the UI; the actual FTS query is debounced. */
     val searchQueryInput: StateFlow<String> = searchQuery.asStateFlow()
