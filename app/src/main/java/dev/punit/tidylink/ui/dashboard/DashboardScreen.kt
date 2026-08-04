@@ -757,6 +757,7 @@ fun DashboardScreen(
         // Touching the current index lets Paging prefetch around it
         // (prefetchDistance = 90), so a long swipe streak keeps finding
         // neighbours instead of stopping dead at the loaded edge.
+        // Return value intentionally unused - the read itself is the point.
         if (currentIndex >= 0) activeList[currentIndex]
 
         // Observe the LIVE entity so refreshes / background classification
