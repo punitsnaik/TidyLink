@@ -94,6 +94,7 @@ internal fun LinkDetailSheet(
         // Open fully expanded: with the default half-expanded state the
         // pinned action bar is laid out below the fold, off-screen.
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = glassSheetColor(),
     ) {
         // Details scroll; the action bar below stays pinned so the CTA is
         // always reachable without scrolling.
