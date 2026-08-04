@@ -6,30 +6,28 @@
 # ignore the file, stripping serializers and breaking release builds only.
 #
 # R8 full mode is on by default (AGP 8.0+). Most libraries (Room, WorkManager,
-# Retrofit, OkHttp) bundle their own consumer rules; what follows covers the
-# gaps that bite in practice.
+# OkHttp) bundle their own consumer rules; what follows covers the gaps that
+# bite in practice.
 
-# --- Attributes needed by Retrofit (generic signatures on suspend fns) and
-# --- kotlinx-serialization (runtime-visible annotations).
+# --- Attributes needed by kotlinx-serialization ----------------------------
+# Signature carries the generic types serializer lookup reads; the annotation
+# attributes carry @Serializable itself.
 -keepattributes Signature, InnerClasses, EnclosingMethod, RuntimeVisibleAnnotations, AnnotationDefault
 
-# --- Retrofit -------------------------------------------------------------
-# Keep annotated interface methods and their parameter annotations so the
-# HTTP layer can reflect over them after shrinking.
--keepclassmembers,allowshrinking,allowobfuscation interface * {
-    @retrofit2.http.* <methods>;
-}
+# --- OkHttp ----------------------------------------------------------------
 -dontwarn okhttp3.**
 -dontwarn okio.**
--dontwarn retrofit2.**
 -dontwarn javax.annotation.**
 
 # --- kotlinx-serialization -------------------------------------------------
-# Json.decodeFromString<T>() and Retrofit's converter both resolve serializers
-# REFLECTIVELY at runtime via serializer(typeOf<T>()). That lookup needs the
-# generated $$serializer class and the Companion to survive shrinking; without
-# these rules R8 full mode removes them and every decode throws
-# SerializationException("Serializer for class 'X' is not found").
+# The reified Json.decodeFromString<T>() / encodeToString<T>() used across the
+# app resolve serializers REFLECTIVELY at runtime via serializer(typeOf<T>()).
+# That lookup needs the generated $$serializer class and the Companion to
+# survive shrinking; without these rules R8 full mode removes them and every
+# decode throws SerializationException("Serializer for class 'X' is not
+# found"). The chat wire types now pass ChatRequest.serializer() explicitly,
+# which needs no reflection - but LinkEntity, LlmProvider, ProviderHealth and
+# the trash/export model still go through the reified form, so these stay.
 #
 # The generic -if rules below are the upstream full-mode ruleset; the
 # app-scoped rules that follow are belt-and-braces for dev.punit.tidylink.
@@ -57,8 +55,8 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# App types explicitly: wire formats (ChatRequest/ChatResponse), provider
-# storage (LlmProvider/ProviderHealth), and the JSON export/import model.
+# App types explicitly: the chat wire format, provider storage
+# (LlmProvider/ProviderHealth), and the JSON export/import model.
 -keep,includedescriptorclasses class dev.punit.tidylink.**$$serializer { *; }
 -keepclassmembers class dev.punit.tidylink.** {
     *** Companion;

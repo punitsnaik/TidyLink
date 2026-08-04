@@ -95,8 +95,8 @@ android {
                 )
             }
             // R8 shrinking/obfuscation. The keep rules in proguard-rules.pro
-            // cover the reflection-heavy libs (Room, Retrofit,
-            // kotlinx-serialization, WorkManager).
+            // cover the reflection-heavy libs (Room, kotlinx-serialization,
+            // WorkManager).
             //
             // NOTE: proguardFiles() is the ONLY way to hand rules to R8. An
             // earlier version of this file kept them in src/main/keepRules/,
@@ -179,9 +179,8 @@ dependencies {
     // Scraping
     implementation(libs.jsoup)
 
-    // Networking (LLM API)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.kotlinx.serialization)
+    // Networking (LLM API). Raw OkHttp - the app calls exactly one endpoint,
+    // so Retrofit's reflective layer bought nothing and cost an R8 hazard.
     implementation(libs.okhttp)
     // NOTE: deliberately no okhttp logging-interceptor - it would log
     // Authorization headers (the user's API keys) if ever wired in.
