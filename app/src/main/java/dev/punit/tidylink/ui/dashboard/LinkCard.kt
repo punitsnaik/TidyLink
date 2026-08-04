@@ -77,13 +77,6 @@ import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
 
-/**
- * How far a read link recedes. Low enough to read as "handled" at a
- * glance, high enough that the title stays legible - these links are still
- * in the library and still searchable, they just aren't the queue any more.
- */
-private const val READ_ALPHA = 0.55f
-
 // --- Summary line-count derivation (see LinkCardBody / summaryMaxLines) ---
 
 /** Never fewer lines than this, even beside the shortest possible thumbnail. */
@@ -190,7 +183,6 @@ internal fun LinkCard(
     val refreshActionLabel = stringResource(R.string.action_refresh_link)
     val deleteActionLabel = stringResource(R.string.action_delete_link)
     val selectedStateLabel = stringResource(R.string.cd_selected)
-    val readStateLabel = stringResource(R.string.cd_read)
 
     SwipeToDismissBox(
         state = dismissState,
@@ -236,10 +228,7 @@ internal fun LinkCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer {
-                    // Read links recede rather than disappear - folded into
-                    // the existing entrance alpha instead of a second
-                    // modifier, so there's still one layer per card.
-                    alpha = entrance.value * if (link.isRead) READ_ALPHA else 1f
+                    alpha = entrance.value
                     translationY = (1f - entrance.value) * 24.dp.toPx()
                     scaleX = pressScale
                     scaleY = pressScale
@@ -251,11 +240,8 @@ internal fun LinkCard(
                     onLongClick = onLongClick,
                 )
                 .semantics {
-                    // Dimming conveys "read" visually; TalkBack needs it said.
                     if (selected) {
                         stateDescription = selectedStateLabel
-                    } else if (link.isRead) {
-                        stateDescription = readStateLabel
                     }
                     customActions = listOf(
                         CustomAccessibilityAction(refreshActionLabel) { onRefresh(); true },
@@ -324,7 +310,7 @@ internal fun LinkCard(
  * that is identical between the library grid and trash (`TrashSheet`).
  * Everything that differs between those two contexts - selection, refresh
  * spinner, pinned star, swipe-to-dismiss, the outer `Card`, entrance/press
- * animation, and read/unread dimming - stays with the caller. [thumbnailOverlay]
+ * animation - stays with the caller. [thumbnailOverlay]
  * is where the library grid draws its selection/refresh/pin badges on top
  * of the thumbnail; trash passes none.
  */

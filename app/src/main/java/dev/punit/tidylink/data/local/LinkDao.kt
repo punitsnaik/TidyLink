@@ -148,11 +148,6 @@ interface LinkDao {
     @Query("UPDATE links SET pinned = :pinned WHERE id = :id")
     suspend fun setPinned(id: String, pinned: Boolean)
 
-    @Query("UPDATE links SET isRead = :isRead WHERE id = :id")
-    suspend fun setRead(id: String, isRead: Boolean)
-
-    @Query("UPDATE links SET isRead = 1 WHERE id IN (:ids)")
-    suspend fun markRead(ids: List<String>)
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     @Query("SELECT * FROM links WHERE pinned = 1 ORDER BY timestamp DESC")
