@@ -77,6 +77,9 @@ import java.util.Date
 internal fun LinkDetailSheet(
     link: LinkEntity,
     isBusy: Boolean,
+    hasPrev: Boolean,
+    hasNext: Boolean,
+    onNavigate: (Int) -> Unit,
     onDismiss: () -> Unit,
     onOpen: () -> Unit,
     onRefresh: () -> Unit,
