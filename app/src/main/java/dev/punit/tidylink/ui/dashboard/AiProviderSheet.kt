@@ -134,7 +134,11 @@ fun AiProviderSheet(
     val isCustom = selectedPreset == CUSTOM_PRESET.name
     val canSubmit = baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = glassSheetColor(),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())

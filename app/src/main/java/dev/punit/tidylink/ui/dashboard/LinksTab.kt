@@ -5,10 +5,14 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -19,11 +23,18 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -35,10 +46,18 @@ import dev.punit.tidylink.ui.LinkViewModel
 /** Gutter shared by the grid's contentPadding and the empty-state header. */
 private val HEADER_GUTTER = 16.dp
 
+/** Height reserved for the floating glass search bar overlaying the grid. */
+internal val SEARCH_OVERLAY_HEIGHT = 72.dp
+
 /**
- * The Links tab: a pinned progress bar, then the link grid whose FIRST ITEM
- * is the header (title row, provider banner, search, result count, category
- * tiles).
+ * The Links tab: a Box where the link grid fills the space and scrolls
+ * underneath a floating glass search bar owned by DashboardScreen. The grid
+ * clears the bar with a measured top content padding (the bar's real height,
+ * not an asserted constant), and its FIRST ITEM is the header (title row,
+ * provider banner, search, result
+ * count, category tiles). The progress bar is a separate overlay, pinned
+ * just below the search bar on an opaque surface so it does not blend into
+ * whatever the grid is scrolling underneath it.
  *
  * The header is a grid item on purpose, not a collapsing block above the
  * grid. It used to be an AnimatedVisibility driven by nested-scroll deltas,
@@ -58,10 +77,12 @@ internal fun LinksTab(
     providerBannerDismissed: Boolean,
     onDismissProviderBanner: () -> Unit,
     gridState: LazyGridState,
+    searchBarHeight: Dp,
     onShowSortSheet: () -> Unit,
     onShowToolsSheet: () -> Unit,
     onShowAiProviders: () -> Unit,
     onOpenDetail: (String) -> Unit,
+    onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
@@ -86,20 +107,66 @@ internal fun LinksTab(
         }
     }
 
-    Column(modifier = modifier) {
-        // One bar covers both foreground work (save/import) and background
-        // enrichment - the two used to be separate blocks, which stacked
-        // into a double bar whenever a save overlapped a bulk-import sweep.
-        // Pinned above the scrolling header so activity stays visible no
-        // matter where the list is. Animated in/out so the list doesn't jump.
+    Box(modifier = modifier) {
+        val density = LocalDensity.current
+        var progressBandHeight by remember { mutableStateOf(0.dp) }
+        val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
+        val bandExtra = if (bandVisible) progressBandHeight else 0.dp
+        val contentTop =
+            (if (uiState.isSelectionMode) 12.dp else searchBarHeight + 8.dp) + bandExtra
+
+        val listIsEmpty = lazyLinks.itemCount == 0 &&
+            lazyLinks.loadState.refresh !is LoadState.Loading
+        if (listIsEmpty) {
+            Column(modifier = Modifier.padding(top = contentTop)) {
+                header?.let {
+                    Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
+                }
+                EmptyState(
+                    text = stringResource(
+                        if (query.isNotBlank() || uiState.selectedCategory != null) {
+                            R.string.empty_filtered
+                        } else {
+                            R.string.empty_no_links
+                        }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
+        } else {
+            LinksGrid(
+                lazyLinks = lazyLinks,
+                gridState = gridState,
+                uiState = uiState,
+                viewModel = viewModel,
+                onOpenDetail = onOpenDetail,
+                onRequestDelete = onRequestDelete,
+                header = header,
+                topPadding = contentTop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // Progress overlays the grid just below the search bar - thin, and
+        // only present while work is running.
         AnimatedVisibility(
-            visible = uiState.isProcessing || uiState.pendingEnrichment > 0,
+            visible = bandVisible,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
+            modifier = Modifier.padding(top = if (uiState.isSelectionMode) 0.dp else searchBarHeight),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .onSizeChanged {
+                        progressBandHeight = with(density) { it.height.toDp() }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+            ) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                // Caption only when we know the remaining count.
                 if (uiState.pendingEnrichment > 0) {
                     Text(
                         text = pluralStringResource(
@@ -113,42 +180,6 @@ internal fun LinksTab(
                     )
                 }
             }
-        }
-
-        val listIsEmpty = lazyLinks.itemCount == 0 &&
-            lazyLinks.loadState.refresh !is LoadState.Loading
-        if (listIsEmpty) {
-            // No grid to host the header, but search and the category
-            // filter must stay reachable - that's the only way back from a
-            // filter that matches nothing. Supplies its own gutter, which
-            // the grid otherwise contributes via contentPadding.
-            header?.let {
-                Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
-            }
-            EmptyState(
-                text = stringResource(
-                    if (query.isNotBlank() || uiState.selectedCategory != null) {
-                        R.string.empty_filtered
-                    } else {
-                        R.string.empty_no_links
-                    }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
-        } else {
-            LinksGrid(
-                lazyLinks = lazyLinks,
-                gridState = gridState,
-                uiState = uiState,
-                viewModel = viewModel,
-                onOpenDetail = onOpenDetail,
-                header = header,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f),
-            )
         }
     }
 }
@@ -221,13 +252,7 @@ private fun LinksHeader(
             )
         }
 
-        SearchBar(
-            query = query,
-            onQueryChange = viewModel::search,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-        )
+        Spacer(Modifier.height(4.dp))
 
         // A failed query must not read as "0 results" - that's how a broken
         // search query hid in plain sight.

@@ -241,57 +241,6 @@ class LinkViewModel(
         selectedCategory.value = category
     }
 
-    /**
-     * Called when the user actually opens a link, so the library can
-     * resolve instead of only growing.
-     */
-    fun markRead(link: LinkEntity) {
-        if (link.isRead) return
-        setReadState(link.id, true)
-    }
-
-    fun toggleRead(link: LinkEntity) {
-        setReadState(link.id, !link.isRead)
-    }
-
-    /**
-     * Not runCatching: that swallows CancellationException along with
-     * everything else, which is the pattern this codebase already had to
-     * fix once in the update-check paths.
-     */
-    private fun setReadState(id: String, isRead: Boolean) {
-        viewModelScope.launch {
-            try {
-                repository.setRead(id, isRead)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message.value = UiMessage.Text(R.string.msg_read_state_failed)
-            }
-        }
-    }
-
-    /** Bulk "I'm done with these" for the current selection. */
-    fun markSelectedRead() {
-        val ids = selectedIds.value.toList()
-        if (ids.isEmpty()) return
-        selectedIds.value = emptySet()
-        viewModelScope.launch {
-            try {
-                repository.markRead(ids)
-                message.value = UiMessage.Plural(
-                    R.plurals.msg_marked_read,
-                    ids.size,
-                    listOf(ids.size),
-                )
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message.value = UiMessage.Text(R.string.msg_read_state_failed)
-            }
-        }
-    }
-
     fun setSortOrder(order: SortOrder) {
         sortOrder.value = order
     }
@@ -378,6 +327,36 @@ class LinkViewModel(
                 message.value = UiMessage.Text(R.string.msg_refresh_link_failed)
             } finally {
                 refreshingIds.value -= link.id
+            }
+        }
+    }
+
+    /**
+     * Links whose thumbnail we have already tried to recover this session.
+     *
+     * In-memory on purpose. It bounds the retries with no schema change and
+     * no counter to migrate, and a fresh launch grants one more attempt -
+     * which is exactly what someone reopening the app hoping for pictures
+     * wants. Only touched from the main thread (Compose load callbacks).
+     */
+    private val attemptedThumbnailRecoveries = mutableSetOf<String>()
+
+    /**
+     * Called when a card or the detail sheet fails to LOAD a stored
+     * thumbnail: re-scrapes that link once, in case the URL has expired or
+     * gone dead. Silent - a blank thumbnail is not worth a snackbar, and
+     * this fires while the user is scrolling.
+     */
+    fun recoverThumbnail(link: LinkEntity) {
+        if (!attemptedThumbnailRecoveries.add(link.id)) return
+        viewModelScope.launch {
+            try {
+                repository.recoverThumbnail(link)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Offline or the site is down. The favicon fallback is
+                // already on screen; the next launch may do better.
             }
         }
     }
