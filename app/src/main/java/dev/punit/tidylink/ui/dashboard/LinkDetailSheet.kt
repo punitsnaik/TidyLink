@@ -95,6 +95,7 @@ internal fun LinkDetailSheet(
         // pinned action bar is laid out below the fold, off-screen.
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = glassSheetColor(),
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         // Details scroll; the action bar below stays pinned so the CTA is
         // always reachable without scrolling.
