@@ -1,6 +1,8 @@
 package dev.punit.tidylink.ui.dashboard
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,14 +23,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.punit.tidylink.R
+import dev.punit.tidylink.ui.theme.Motion
 
 /** Destinations reachable from the floating pill navigation bar. */
 internal enum class DashboardTab { Links, Pinned, Settings }
@@ -81,7 +86,7 @@ internal fun BottomPillNav(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(56.dp)
-                    .clickable(onClick = onAdd),
+                    .clickable(role = Role.Button, onClick = onAdd),
             ) {
                 Icon(
                     Icons.Default.Add,
@@ -112,19 +117,29 @@ private fun PillTab(
         DashboardTab.Pinned -> Icons.Default.Star
         DashboardTab.Settings -> Icons.Default.Settings
     }
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = if (selected) {
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
             Color.Transparent
         },
-        contentColor = if (selected) {
+        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+        label = "pillColor",
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
+        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+        label = "pillContentColor",
+    )
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(50),
+        color = containerColor,
+        contentColor = contentColor,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

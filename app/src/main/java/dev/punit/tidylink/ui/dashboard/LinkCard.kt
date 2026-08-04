@@ -69,6 +69,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
+import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
 
 /**
@@ -109,7 +110,7 @@ internal fun LinkCard(
     if (shouldAnimateEntrance) {
         LaunchedEffect(Unit) {
             delay(index * 45L)
-            entrance.animateTo(1f, tween(durationMillis = 300))
+            entrance.animateTo(1f, tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing))
         }
     }
 
