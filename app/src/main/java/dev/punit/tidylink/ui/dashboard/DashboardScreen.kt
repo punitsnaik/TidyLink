@@ -62,6 +62,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
@@ -82,6 +83,12 @@ fun DashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val query by viewModel.searchQueryInput.collectAsStateWithLifecycle()
     val lazyLinks = viewModel.links.collectAsLazyPagingItems()
+    // Hoisted out of the Pinned tab branch: the detail sheet is composed at
+    // the bottom of this function and needs whichever list the user tapped
+    // from to work out the swipe neighbour. Cost is one always-collected
+    // paging query; the alternative is threading a callback through two
+    // more layers.
+    val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -420,7 +427,6 @@ fun DashboardScreen(
                         )
 
                         DashboardTab.Pinned -> {
-                            val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
                             val pinnedEmpty = lazyPinned.itemCount == 0 &&
                                 lazyPinned.loadState.refresh !is LoadState.Loading
                             if (pinnedEmpty) {
@@ -737,23 +743,45 @@ fun DashboardScreen(
     }
 
     selectedLinkId?.let { id ->
+        // Swipe navigates the list the user actually tapped from, so it
+        // follows the active search, category filter and sort.
+        val activeList = if (currentTab == DashboardTab.Pinned) lazyPinned else lazyLinks
+        val currentIndex = activeList.itemSnapshotList.items.indexOfFirst { it.id == id }
+        // Touching the current index lets Paging prefetch around it
+        // (prefetchDistance = 90), so a long swipe streak keeps finding
+        // neighbours instead of stopping dead at the loaded edge.
+        if (currentIndex >= 0) activeList[currentIndex]
+
         // Observe the LIVE entity so refreshes / background classification
         // update the open sheet; survives rotation because only the id is
         // saved. If the link is deleted underneath, the sheet closes.
         val observedLink by remember(id) { viewModel.observeLink(id) }
             .collectAsStateWithLifecycle(initialValue = null)
+        // Hold the last loaded entity. observeLink restarts at null on every
+        // id change, and letting LinkDetailSheet leave composition for that
+        // one frame replays the ModalBottomSheet slide-up enter animation on
+        // every single swipe. Deliberately NOT keyed on id.
+        var shownLink by remember { mutableStateOf<LinkEntity?>(null) }
         var everLoaded by remember(id) { mutableStateOf(false) }
         LaunchedEffect(observedLink) {
-            if (observedLink != null) {
+            val loaded = observedLink
+            if (loaded != null) {
                 everLoaded = true
+                shownLink = loaded
             } else if (everLoaded) {
                 selectedLinkId = null
             }
         }
-        observedLink?.let { link ->
+        shownLink?.let { link ->
             LinkDetailSheet(
                 link = link,
                 isBusy = link.id in uiState.refreshingIds,
+                hasPrev = detailNeighborIndex(currentIndex, -1, activeList.itemCount) != null,
+                hasNext = detailNeighborIndex(currentIndex, 1, activeList.itemCount) != null,
+                onNavigate = { direction ->
+                    detailNeighborIndex(currentIndex, direction, activeList.itemCount)
+                        ?.let { target -> activeList[target]?.let { selectedLinkId = it.id } }
+                },
                 onDismiss = { selectedLinkId = null },
                 onOpen = {
                     selectedLinkId = null
