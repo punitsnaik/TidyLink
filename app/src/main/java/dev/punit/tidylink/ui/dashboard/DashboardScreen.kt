@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -74,15 +75,37 @@ import kotlinx.coroutines.withContext
 private const val REPO_URL = "https://github.com/punitsnaik/TidyLink"
 
 /**
- * A delete waiting on confirmation: how many links it affects, whether it
- * skips the trash, and what to run if the user goes ahead. One holder for
- * every delete entry point (swipe, selection toolbar, detail sheet, trash)
- * so they can't drift apart.
+ * An action waiting on confirmation: what to say, and what to run if the
+ * user goes ahead. One holder for every confirm-then-act entry point (the
+ * four deletes, tidy-up, empty trash, merge duplicates) so they can't drift
+ * apart.
  */
-private data class PendingDelete(
-    val count: Int,
-    val permanent: Boolean = false,
+private data class PendingConfirm(
+    /** String resource. */
+    val title: Int,
+    /** String resource when [count] is null, plurals resource otherwise. */
+    val body: Int,
+    /** String resource for the confirm button. */
+    val action: Int,
+    /** Quantity for [body]; also the single plurals argument. */
+    val count: Int? = null,
+    /** Tints the confirm button with the error colour. */
+    val destructive: Boolean = false,
     val confirm: () -> Unit,
+)
+
+/** The delete flavours of [PendingConfirm] - by far the most common. */
+private fun deleteConfirm(
+    count: Int,
+    permanent: Boolean = false,
+    confirm: () -> Unit,
+) = PendingConfirm(
+    title = if (permanent) R.string.dialog_delete_forever_title else R.string.dialog_delete_title,
+    body = if (permanent) R.plurals.dialog_delete_forever_body else R.plurals.dialog_delete_body,
+    action = if (permanent) R.string.action_delete_forever else R.string.action_delete,
+    count = count,
+    destructive = true,
+    confirm = confirm,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -117,21 +140,20 @@ fun DashboardScreen(
     var showToolsSheet by rememberSaveable { mutableStateOf(false) }
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
-    var showTidyConfirm by rememberSaveable { mutableStateOf(false) }
-    var showDuplicatesConfirm by rememberSaveable { mutableStateOf(false) }
     var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
     var showTrashSheet by rememberSaveable { mutableStateOf(false) }
-    var showEmptyTrashConfirm by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
     var selectedLinkId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingLinkId by rememberSaveable { mutableStateOf<String?>(null) }
-    // Every delete in the app funnels through one confirmation dialog.
+    // Every confirm-then-act in the app funnels through one dialog: deletes
+    // (swipe, selection toolbar, detail sheet, trash), tidy-up, empty trash
+    // and duplicate merging.
     // Deliberately NOT rememberSaveable: it holds the action to run, and a
-    // lambda can't go in a Bundle. A rotation mid-dialog cancels the delete,
+    // lambda can't go in a Bundle. A rotation mid-dialog cancels the action,
     // which is the safe direction to fail.
-    var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
+    var pendingConfirm by remember { mutableStateOf<PendingConfirm?>(null) }
 
     // Grid states live here (not inside the tab branches) so scroll
     // positions survive switching tabs.
@@ -156,10 +178,13 @@ fun DashboardScreen(
     // graphics layer alive even at 0dp, so the layer must exist only while
     // a modal is open or animating closed, not as a permanent steady-state
     // cost on every frame the app draws.
+    // Note: pendingConfirm now carries tidy / empty-trash / duplicates, which
+    // were separate flags here, AND the delete dialog, which never was. So
+    // the delete confirmation now blurs the backdrop like every other modal
+    // - a deliberate consequence of the merge, not a stray change.
     val modalOpen = showAddDialog || showSortSheet || showThemeSheet ||
         showToolsSheet || showAiProviders || showMoveDialog ||
-        showTidyConfirm || showDuplicatesConfirm || showBookmarkImport ||
-        showTrashSheet || showEmptyTrashConfirm ||
+        showBookmarkImport || showTrashSheet || pendingConfirm != null ||
         selectedLinkId != null || editingLinkId != null
     // Paired with SHEET_GLASS_ALPHA - the two are one effect and should be
     // tuned together. 20.dp left the backdrop only softly out of focus and
@@ -372,7 +397,7 @@ fun DashboardScreen(
                         }
                         IconButton(
                             onClick = {
-                                pendingDelete = PendingDelete(uiState.selectedIds.size) {
+                                pendingConfirm = deleteConfirm(uiState.selectedIds.size) {
                                     viewModel.deleteSelected()
                                 }
                             },
@@ -443,7 +468,7 @@ fun DashboardScreen(
                             onShowAiProviders = { showAiProviders = true },
                             onOpenDetail = { selectedLinkId = it },
                             onRequestDelete = { link ->
-                                pendingDelete = PendingDelete(1) { viewModel.deleteLink(link) }
+                                pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
                             },
                             modifier = Modifier
                                 .fillMaxSize()
@@ -468,7 +493,7 @@ fun DashboardScreen(
                                     viewModel = viewModel,
                                     onOpenDetail = { selectedLinkId = it },
                                     onRequestDelete = { link ->
-                                        pendingDelete = PendingDelete(1) { viewModel.deleteLink(link) }
+                                        pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
                                     },
                                     animateEntrance = false,
                                     modifier = Modifier
@@ -590,79 +615,42 @@ fun DashboardScreen(
         )
     }
 
-    // One dialog for every delete. A swipe on a card is the easy-to-trigger
-    // one and the reason this exists, but routing the selection toolbar,
-    // detail sheet and trash through the same holder keeps them consistent.
-    pendingDelete?.let { pending ->
+    // One dialog for every confirm-then-act. A swipe-delete on a card is the
+    // easy-to-trigger one and the reason this exists, but routing the
+    // selection toolbar, detail sheet, trash, tidy-up and duplicate merging
+    // through the same holder is what keeps them from drifting apart.
+    pendingConfirm?.let { pending ->
         AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = {
-                Text(
-                    stringResource(
-                        if (pending.permanent) {
-                            R.string.dialog_delete_forever_title
-                        } else {
-                            R.string.dialog_delete_title
-                        }
-                    )
-                )
-            },
+            onDismissRequest = { pendingConfirm = null },
+            title = { Text(stringResource(pending.title)) },
             text = {
                 Text(
-                    pluralStringResource(
-                        if (pending.permanent) {
-                            R.plurals.dialog_delete_forever_body
-                        } else {
-                            R.plurals.dialog_delete_body
-                        },
-                        pending.count,
-                        pending.count,
-                    )
+                    if (pending.count != null) {
+                        pluralStringResource(pending.body, pending.count, pending.count)
+                    } else {
+                        stringResource(pending.body)
+                    }
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        pendingDelete = null
+                        pendingConfirm = null
                         pending.confirm()
                     },
                 ) {
                     Text(
-                        stringResource(
-                            if (pending.permanent) {
-                                R.string.action_delete_forever
-                            } else {
-                                R.string.action_delete
-                            }
-                        ),
-                        color = MaterialTheme.colorScheme.error,
+                        stringResource(pending.action),
+                        color = if (pending.destructive) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            Color.Unspecified
+                        },
                     )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    // Tidy-up is a bulk, non-undoable rename - always confirm first.
-    if (showTidyConfirm) {
-        AlertDialog(
-            onDismissRequest = { showTidyConfirm = false },
-            title = { Text(stringResource(R.string.tidy_confirm_title)) },
-            text = { Text(stringResource(R.string.tidy_confirm_body)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showTidyConfirm = false
-                        viewModel.tidyCategories()
-                    },
-                ) { Text(stringResource(R.string.tidy_confirm_action)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTidyConfirm = false }) {
+                TextButton(onClick = { pendingConfirm = null }) {
                     Text(stringResource(R.string.action_cancel))
                 }
             },
@@ -675,38 +663,21 @@ fun DashboardScreen(
             trashed = trashed,
             onRestore = viewModel::restoreFromTrash,
             onDeleteForever = { ids ->
-                pendingDelete = PendingDelete(ids.size, permanent = true) {
+                pendingConfirm = deleteConfirm(ids.size, permanent = true) {
                     viewModel.deleteFromTrashForever(ids)
                 }
             },
+            // Emptying the trash is the one genuinely irreversible action in
+            // the app - everything else this sheet offers can be undone.
             onEmptyTrash = {
                 showTrashSheet = false
-                showEmptyTrashConfirm = true
+                pendingConfirm = PendingConfirm(
+                    title = R.string.dialog_empty_trash_title,
+                    body = R.string.dialog_empty_trash_body,
+                    action = R.string.action_empty_trash,
+                ) { viewModel.emptyTrash() }
             },
             onDismiss = { showTrashSheet = false },
-        )
-    }
-
-    // Emptying the trash is the one genuinely irreversible action in the
-    // app - everything else this sheet offers can be undone.
-    if (showEmptyTrashConfirm) {
-        AlertDialog(
-            onDismissRequest = { showEmptyTrashConfirm = false },
-            title = { Text(stringResource(R.string.dialog_empty_trash_title)) },
-            text = { Text(stringResource(R.string.dialog_empty_trash_body)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showEmptyTrashConfirm = false
-                        viewModel.emptyTrash()
-                    },
-                ) { Text(stringResource(R.string.action_empty_trash)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEmptyTrashConfirm = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
         )
     }
 
@@ -721,37 +692,6 @@ fun DashboardScreen(
                 bookmarkImportLauncher.launch(arrayOf("text/html", "text/plain", "*/*"))
             },
             onDismiss = { showBookmarkImport = false },
-        )
-    }
-
-    // Merging deletes rows. It keeps the richest copy and folds the others
-    // into it, but it still can't be undone - state the count first.
-    if (showDuplicatesConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDuplicatesConfirm = false },
-            title = { Text(stringResource(R.string.dialog_duplicates_title)) },
-            text = {
-                Text(
-                    pluralStringResource(
-                        R.plurals.dialog_duplicates_body,
-                        uiState.duplicateCount,
-                        uiState.duplicateCount,
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDuplicatesConfirm = false
-                        viewModel.mergeDuplicates()
-                    },
-                ) { Text(stringResource(R.string.dialog_duplicates_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDuplicatesConfirm = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
         )
     }
 
@@ -783,13 +723,25 @@ fun DashboardScreen(
                 showToolsSheet = false
                 showTrashSheet = true
             },
+            // Tidy-up is a bulk, non-undoable rename - always confirm first.
             onTidyCategories = {
                 showToolsSheet = false
-                showTidyConfirm = true
+                pendingConfirm = PendingConfirm(
+                    title = R.string.tidy_confirm_title,
+                    body = R.string.tidy_confirm_body,
+                    action = R.string.tidy_confirm_action,
+                ) { viewModel.tidyCategories() }
             },
+            // Merging deletes rows. It keeps the richest copy and folds the
+            // others into it, but it still can't be undone - state the count.
             onMergeDuplicates = {
                 showToolsSheet = false
-                showDuplicatesConfirm = true
+                pendingConfirm = PendingConfirm(
+                    title = R.string.dialog_duplicates_title,
+                    body = R.plurals.dialog_duplicates_body,
+                    action = R.string.dialog_duplicates_confirm,
+                    count = uiState.duplicateCount,
+                ) { viewModel.mergeDuplicates() }
             },
             onDismiss = { showToolsSheet = false },
         )
@@ -879,7 +831,7 @@ fun DashboardScreen(
                 // Keep the sheet open: updated details animate in place.
                 onRefresh = { viewModel.refreshLink(link) },
                 onDelete = {
-                    pendingDelete = PendingDelete(1) {
+                    pendingConfirm = deleteConfirm(1) {
                         selectedLinkId = null
                         viewModel.deleteLink(link)
                     }
