@@ -4,10 +4,13 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -350,93 +353,108 @@ fun DashboardScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
-                when (currentTab) {
-                    DashboardTab.Links -> LinksTab(
-                        viewModel = viewModel,
-                        uiState = uiState,
-                        query = query,
-                        lazyLinks = lazyLinks,
-                        hasProviders = providers.isNotEmpty(),
-                        providerBannerDismissed = providerBannerDismissed,
-                        onDismissProviderBanner = { providerBannerDismissed = true },
-                        gridState = gridState,
-                        onShowSortSheet = { showSortSheet = true },
-                        onShowToolsSheet = { showToolsSheet = true },
-                        onShowAiProviders = { showAiProviders = true },
-                        onOpenDetail = { selectedLinkId = it },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                    )
+                AnimatedContent(
+                    targetState = currentTab,
+                    transitionSpec = {
+                        // M3 fade-through: outgoing fades fast, incoming
+                        // fades in with a slight scale-up after it.
+                        (fadeIn(tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)) +
+                            scaleIn(
+                                initialScale = 0.94f,
+                                animationSpec = tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing),
+                            ))
+                            .togetherWith(fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)))
+                    },
+                    label = "tabTransition",
+                ) { tab ->
+                    when (tab) {
+                        DashboardTab.Links -> LinksTab(
+                            viewModel = viewModel,
+                            uiState = uiState,
+                            query = query,
+                            lazyLinks = lazyLinks,
+                            hasProviders = providers.isNotEmpty(),
+                            providerBannerDismissed = providerBannerDismissed,
+                            onDismissProviderBanner = { providerBannerDismissed = true },
+                            gridState = gridState,
+                            onShowSortSheet = { showSortSheet = true },
+                            onShowToolsSheet = { showToolsSheet = true },
+                            onShowAiProviders = { showAiProviders = true },
+                            onOpenDetail = { selectedLinkId = it },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
 
-                    DashboardTab.Pinned -> {
-                        val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
-                        val pinnedEmpty = lazyPinned.itemCount == 0 &&
-                            lazyPinned.loadState.refresh !is LoadState.Loading
-                        if (pinnedEmpty) {
-                            EmptyState(
-                                text = stringResource(R.string.empty_no_pinned),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding),
-                            )
-                        } else {
-                            LinksGrid(
-                                lazyLinks = lazyPinned,
-                                gridState = pinnedGridState,
-                                uiState = uiState,
-                                viewModel = viewModel,
-                                onOpenDetail = { selectedLinkId = it },
-                                animateEntrance = false,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding),
-                            )
-                        }
-                    }
-
-                    DashboardTab.Settings -> SettingsTab(
-                        themeMode = themeMode,
-                        onThemeClick = { showThemeSheet = true },
-                        onAiProviders = { showAiProviders = true },
-                        onExport = { exportLauncher.launch("tidylink-backup.json") },
-                        onImportBookmarks = { showBookmarkImport = true },
-                        backupState = backupState,
-                        // Turning it ON always re-opens the picker: the row is also
-                        // the recovery path when the chosen folder has gone away.
-                        onToggleAutoBackup = {
-                            if (backupState.enabled) {
-                                viewModel.disableBackup()
-                                scope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        resources.getString(R.string.msg_auto_backup_disabled)
-                                    )
-                                }
+                        DashboardTab.Pinned -> {
+                            val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
+                            val pinnedEmpty = lazyPinned.itemCount == 0 &&
+                                lazyPinned.loadState.refresh !is LoadState.Loading
+                            if (pinnedEmpty) {
+                                EmptyState(
+                                    text = stringResource(R.string.empty_no_pinned),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding),
+                                )
                             } else {
-                                backupFolderLauncher.launch(null)
+                                LinksGrid(
+                                    lazyLinks = lazyPinned,
+                                    gridState = pinnedGridState,
+                                    uiState = uiState,
+                                    viewModel = viewModel,
+                                    onOpenDetail = { selectedLinkId = it },
+                                    animateEntrance = false,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding),
+                                )
                             }
-                        },
-                        onImportJson = {
-                            importLauncher.launch(
-                                arrayOf("application/json", "application/octet-stream")
-                            )
-                        },
-                        onShowIntro = viewModel::replayIntro,
-                        onOpenRepo = { openLink(context, REPO_URL) },
-                        updateState = updateState,
-                        onUpdateClick = {
-                            when (val state = updateState) {
-                                is UpdateState.Available -> viewModel.downloadUpdate()
-                                is UpdateState.ReadyToInstall -> installApk(context, state.file)
-                                // Row is disabled in these states; nothing to do.
-                                UpdateState.Checking, is UpdateState.Downloading -> Unit
-                                else -> viewModel.checkForUpdates()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                    )
+                        }
+
+                        DashboardTab.Settings -> SettingsTab(
+                            themeMode = themeMode,
+                            onThemeClick = { showThemeSheet = true },
+                            onAiProviders = { showAiProviders = true },
+                            onExport = { exportLauncher.launch("tidylink-backup.json") },
+                            onImportBookmarks = { showBookmarkImport = true },
+                            backupState = backupState,
+                            // Turning it ON always re-opens the picker: the row is also
+                            // the recovery path when the chosen folder has gone away.
+                            onToggleAutoBackup = {
+                                if (backupState.enabled) {
+                                    viewModel.disableBackup()
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            resources.getString(R.string.msg_auto_backup_disabled)
+                                        )
+                                    }
+                                } else {
+                                    backupFolderLauncher.launch(null)
+                                }
+                            },
+                            onImportJson = {
+                                importLauncher.launch(
+                                    arrayOf("application/json", "application/octet-stream")
+                                )
+                            },
+                            onShowIntro = viewModel::replayIntro,
+                            onOpenRepo = { openLink(context, REPO_URL) },
+                            updateState = updateState,
+                            onUpdateClick = {
+                                when (val state = updateState) {
+                                    is UpdateState.Available -> viewModel.downloadUpdate()
+                                    is UpdateState.ReadyToInstall -> installApk(context, state.file)
+                                    // Row is disabled in these states; nothing to do.
+                                    UpdateState.Checking, is UpdateState.Downloading -> Unit
+                                    else -> viewModel.checkForUpdates()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
+                    }
                 }
             }
 
