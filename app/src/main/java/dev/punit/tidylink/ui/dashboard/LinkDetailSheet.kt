@@ -459,3 +459,16 @@ private fun copyLink(context: Context, url: String) {
     context.getSystemService(ClipboardManager::class.java)
         ?.setPrimaryClip(ClipData.newPlainText("link", url))
 }
+
+/**
+ * Index the sheet should move to for a swipe, or null when there is nowhere
+ * to go (either end of the list, or the open link is no longer in the list
+ * because a filter changed underneath it - [currentIndex] is -1 then).
+ *
+ * [direction] is -1 for previous, +1 for next.
+ */
+internal fun detailNeighborIndex(currentIndex: Int, direction: Int, itemCount: Int): Int? {
+    if (currentIndex < 0) return null
+    val target = currentIndex + direction
+    return if (target in 0 until itemCount) target else null
+}
