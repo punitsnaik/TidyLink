@@ -59,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -190,7 +191,14 @@ internal fun LinkDetailSheet(
                     }
                 },
         ) { shown ->
-            val hasImage = !shown.imageUrl.isNullOrBlank()
+            // Load failure is tracked keyed on the image URL itself
+            // (remember(shown.imageUrl), not a plain boolean) so a
+            // re-scrape that hands the link a different URL starts fresh
+            // instead of the sheet staying pinned to the favicon fallback
+            // forever - and so navigating to a different link (a new
+            // `shown`) doesn't inherit the previous link's failure state.
+            var imageLoadFailed by remember(shown.imageUrl) { mutableStateOf(false) }
+            val hasImage = !shown.imageUrl.isNullOrBlank() && !imageLoadFailed
             // verticalScroll stays on THIS Column, not hoisted up next to
             // .weight(...) on AnimatedContent above. rememberScrollState()
             // is per-composable-instance, so scoping it here means each
@@ -210,6 +218,7 @@ internal fun LinkDetailSheet(
                             .build(),
                         contentDescription = shown.title,
                         contentScale = ContentScale.Crop,
+                        onError = { imageLoadFailed = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(16f / 9f)

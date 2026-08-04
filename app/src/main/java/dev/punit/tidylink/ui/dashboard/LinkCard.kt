@@ -47,7 +47,9 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -244,7 +246,13 @@ internal fun LinkCard(
             ) {
                 // Thumbnail (or favicon placeholder) with selection / refresh
                 // overlays. Fills the card height; 5dp gap on all sides.
-                val hasImage = !link.imageUrl.isNullOrBlank()
+                // Load failure is tracked keyed on the image URL itself
+                // (remember(link.imageUrl), not a plain boolean) so a
+                // re-scrape that hands the link a different URL starts
+                // fresh instead of the card staying pinned to the favicon
+                // fallback forever.
+                var imageLoadFailed by remember(link.imageUrl) { mutableStateOf(false) }
+                val hasImage = !link.imageUrl.isNullOrBlank() && !imageLoadFailed
                 Box(
                     modifier = Modifier
                         .padding(5.dp)
@@ -257,6 +265,7 @@ internal fun LinkCard(
                             .build(),
                         contentDescription = link.title,
                         contentScale = if (hasImage) ContentScale.Crop else ContentScale.Fit,
+                        onError = { if (hasImage) imageLoadFailed = true },
                         modifier = Modifier
                             .fillMaxHeight()
                             .defaultMinSize(minHeight = 104.dp)

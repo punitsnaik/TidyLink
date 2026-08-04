@@ -115,6 +115,22 @@ interface LinkDao {
     )
     suspend fun getScrapeCandidates(maxAttempts: Int): List<LinkEntity>
 
+    /**
+     * Same question as [getScrapeCandidates], just a count. Deliberately
+     * kept a character-for-character mirror of that query's WHERE clause
+     * (including :maxAttempts) - this is what drives the startup gate
+     * (`LinkRepository.hasPendingEnrichment`), and if the two ever
+     * disagree the gate either opens for work the sweep won't do, or
+     * stays shut on work it would have done.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM links
+        WHERE scrapeAttempts = 0 OR (imageUrl IS NULL AND scrapeAttempts < :maxAttempts)
+        """
+    )
+    suspend fun countScrapeCandidates(maxAttempts: Int): Int
+
     /** Links that have been scraped but never successfully classified. */
     @Query(
         """
