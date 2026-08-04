@@ -180,13 +180,21 @@ private val IMAGE_SOURCES: List<Pair<String, String>> = listOf(
  *
  * `absUrl` resolves a relative path against the document's base URI; the
  * `.ifBlank { attr(...) }` fallback covers documents with no base URI,
- * where `absUrl` itself returns blank. `takeIf { it.isNotBlank() }` is what
- * makes a present-but-empty attribute fall through to the next source
- * instead of being returned as an empty string.
+ * where `absUrl` itself returns blank.
+ *
+ * The raw-attribute check has to come FIRST, and that is not a style
+ * preference. `absUrl` resolves an EMPTY value against the base URI the
+ * same way it resolves a relative one, so `content=""` on a page at
+ * https://example.com comes back as "https://example.com" - a non-blank
+ * string that passes every later emptiness check and gets stored as the
+ * thumbnail. The card then tries to load a web page as an image and shows
+ * an empty box. Guarding on absUrl's output alone cannot catch this,
+ * because by then the base URI has already been substituted in.
  */
 internal fun extractImageUrl(document: Document): String? =
     IMAGE_SOURCES.firstNotNullOfOrNull { (selector, attribute) ->
         document.selectFirst(selector)
+            ?.takeIf { el -> el.attr(attribute).isNotBlank() }
             ?.let { el -> el.absUrl(attribute).ifBlank { el.attr(attribute) } }
             ?.takeIf { it.isNotBlank() }
     }
