@@ -49,7 +49,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -115,6 +117,12 @@ fun DashboardScreen(
 
     // One source feeds every glass surface (pill nav, pinned search bar).
     val hazeState = remember { HazeState() }
+
+    // The glass bar's real height: the M3 TextField grows with the
+    // system font scale, so the reserved band is measured, never
+    // asserted. SEARCH_OVERLAY_HEIGHT is only the first-frame guess.
+    val density = LocalDensity.current
+    var searchBarHeight by remember { mutableStateOf(SEARCH_OVERLAY_HEIGHT) }
 
     // Any modal window open -> the content behind it blurs (API 31+; a
     // no-op below, where the standard scrim still dims). Derived, not
@@ -310,7 +318,9 @@ fun DashboardScreen(
     }
 
     Scaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier),
         topBar = {
             if (uiState.isSelectionMode && currentTab != DashboardTab.Settings) {
                 TopAppBar(
@@ -373,11 +383,7 @@ fun DashboardScreen(
             )
         },
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier),
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
                 AnimatedContent(
                     targetState = currentTab,
@@ -403,6 +409,7 @@ fun DashboardScreen(
                             providerBannerDismissed = providerBannerDismissed,
                             onDismissProviderBanner = { providerBannerDismissed = true },
                             gridState = gridState,
+                            searchBarHeight = searchBarHeight,
                             onShowSortSheet = { showSortSheet = true },
                             onShowToolsSheet = { showToolsSheet = true },
                             onShowAiProviders = { showAiProviders = true },
@@ -490,7 +497,9 @@ fun DashboardScreen(
             // animating header HEIGHT, and this bar never resizes.
             AnimatedVisibility(
                 visible = currentTab == DashboardTab.Links && !uiState.isSelectionMode,
-                enter = fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)),
+                enter = fadeIn(
+                    tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)
+                ),
                 exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
                 modifier = Modifier.align(Alignment.TopCenter),
             ) {
@@ -500,7 +509,10 @@ fun DashboardScreen(
                     modifier = Modifier
                         .padding(top = innerPadding.calculateTopPadding())
                         .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .onSizeChanged {
+                            searchBarHeight = with(density) { it.height.toDp() } + 16.dp
+                        },
                 ) {
                     SearchBar(
                         query = query,
