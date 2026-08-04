@@ -34,7 +34,7 @@ internal fun ThemeSheet(
     onSelect: (ThemeMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = glassSheetColor()) {
         Column(
             modifier = Modifier
                 .navigationBarsPadding()

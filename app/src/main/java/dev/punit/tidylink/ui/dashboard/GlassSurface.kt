@@ -1,12 +1,16 @@
 package dev.punit.tidylink.ui.dashboard
 
+import android.os.Build
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -45,5 +49,27 @@ internal fun GlassSurface(
             ),
     ) {
         content()
+    }
+}
+
+/**
+ * Container color for the dashboard's modal sheets. Sheets render in
+ * their own window, so Haze cannot blur through them - instead
+ * DashboardScreen blurs the content BEHIND the open sheet, and this
+ * translucent container lets that blur read through the sheet like
+ * frosted glass. Below API 31 Modifier.blur is a no-op, so the sheet
+ * stays opaque: translucency over sharp content would put text on
+ * text. The two sheets with local state (privacy, all-categories) do
+ * not trigger the blur-behind and keep the default solid container on
+ * purpose.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun glassSheetColor(): Color {
+    val base = BottomSheetDefaults.ContainerColor
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        base.copy(alpha = 0.92f)
+    } else {
+        base
     }
 }
