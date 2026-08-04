@@ -27,10 +27,6 @@
     <string name="sheet_filter_by_category">Filter by category</string>
     <string name="chip_category_with_count">%1$s (%2$d)</string>
     <string name="tile_more">More</string>
-    <string name="action_mark_read">Mark as read</string>
-    <string name="action_mark_unread">Mark as unread</string>
-    <string name="action_mark_selected_read">Mark selected as read</string>
-    <string name="cd_read">Read</string>
 
     <!-- Progress / onboarding banners -->
     <plurals name="banner_fetching_details">
@@ -255,11 +251,6 @@
     </plurals>
     <string name="msg_duplicates_none">No duplicates to merge</string>
     <string name="msg_duplicates_failed">Couldn\'t merge duplicates</string>
-    <plurals name="msg_marked_read">
-        <item quantity="one">Marked %d link as read</item>
-        <item quantity="other">Marked %d links as read</item>
-    </plurals>
-    <string name="msg_read_state_failed">Couldn\'t update read state</string>
     <plurals name="msg_imported_bookmarks">
         <item quantity="one">Imported %1$d bookmark</item>
         <item quantity="other">Imported %1$d bookmarks</item>

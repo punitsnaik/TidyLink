@@ -36,8 +36,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -112,7 +110,6 @@ internal fun LinkDetailSheet(
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
-    onToggleRead: () -> Unit,
     // Takes the link whose image failed rather than closing over [link]:
     // mid-swipe the sheet is rendering a neighbour, and recovering the
     // wrong row would be a silent no-op that looks like a working fix.
@@ -424,26 +421,6 @@ internal fun LinkDetailSheet(
                             if (link.pinned) R.string.action_unpin else R.string.action_pin
                         ),
                         tint = if (link.pinned) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                }
-                // Opening a link marks it read on its own; this is the
-                // escape hatch for "opened it, didn't actually deal with
-                // it" and for marking something done without opening it.
-                IconButton(onClick = onToggleRead) {
-                    Icon(
-                        if (link.isRead) Icons.Default.CheckCircle else Icons.Default.Check,
-                        contentDescription = stringResource(
-                            if (link.isRead) {
-                                R.string.action_mark_unread
-                            } else {
-                                R.string.action_mark_read
-                            }
-                        ),
-                        tint = if (link.isRead) {
                             MaterialTheme.colorScheme.primary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant

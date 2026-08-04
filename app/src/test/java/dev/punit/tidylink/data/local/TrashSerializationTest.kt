@@ -34,7 +34,6 @@ class TrashSerializationTest {
         dedupeKey = "example.com/a",
         pinned = true,
         scrapeAttempts = 2,
-        isRead = true,
         note = "why I saved this",
     )
 
@@ -50,12 +49,12 @@ class TrashSerializationTest {
      * column silently makes existing trash unrecoverable - which is the
      * failure this design exists to avoid.
      *
-     * The `tags` key here is the mirror case: it was DROPPED in schema v7,
-     * so this row also proves a pre-v7 trash entry restores instead of
+     * `tags` and `isRead` here are the mirror case: both were DROPPED (v7 and
+     * v8), so this row also proves a pre-drop trash entry restores instead of
      * throwing on a field the entity no longer has.
      */
     @Test
-    fun `a row trashed before isRead and note existed still restores`() {
+    fun `a row trashed before note existed, carrying dropped columns, still restores`() {
         val old = """
             {
               "id": "old",
@@ -65,6 +64,7 @@ class TrashSerializationTest {
               "imageUrl": null,
               "category": "Uncategorized",
               "tags": [],
+              "isRead": true,
               "aiSummary": "",
               "timestamp": 100
             }
@@ -73,7 +73,6 @@ class TrashSerializationTest {
         val restored = json.decodeFromString<LinkEntity>(old)
 
         assertEquals("old", restored.id)
-        assertFalse("isRead must decode at its default", restored.isRead)
         assertEquals("note must decode at its default", "", restored.note)
         assertEquals("", restored.dedupeKey)
         assertFalse(restored.pinned)

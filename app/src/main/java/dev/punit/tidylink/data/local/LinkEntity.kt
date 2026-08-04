@@ -36,11 +36,6 @@ data class LinkEntity(
      */
     @ColumnInfo(defaultValue = "0") val scrapeAttempts: Int = 0,
     /**
-     * Set when the link is opened, so the library can resolve instead of
-     * only growing. Also togglable by hand from the detail sheet.
-     */
-    @ColumnInfo(defaultValue = "0") val isRead: Boolean = false,
-    /**
      * The user's own words about why this was saved. Every other text field
      * here belongs to the page (title, description) or to the LLM
      * (aiSummary); this one is the only place the user's intent lives, so

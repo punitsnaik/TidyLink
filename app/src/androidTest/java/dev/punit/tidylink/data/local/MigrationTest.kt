@@ -347,6 +347,117 @@ class MigrationTest {
         assertTrue("trash table should exist at v7", db.columnsOf("trashed_links").isNotEmpty())
     }
 
+    /**
+     * v8 drops `isRead` with the same 12-step recreate v7 used for `tags`,
+     * and for the same reason - DROP COLUMN needs API 34, minSdk is 29.
+     *
+     * The INSERT's column list is typed out by hand, which is exactly where a
+     * value silently lands one slot to the left. So this asserts every
+     * surviving column AND the row's contents, not just that the migration
+     * ran.
+     */
+    @Test
+    fun migrate_7_to_8_drops_isRead_and_keeps_every_other_column_and_row() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS).use { db ->
+            db.execSQL("UPDATE links SET isRead = 1, note = 'my note' WHERE id = 'kot'")
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, *ALL_MIGRATIONS)
+
+        val columns = db.columnsOf("links").sorted()
+        assertFalse("isRead must be gone at v8", "isRead" in columns)
+        assertEquals(
+            listOf(
+                "aiSummary", "category", "dedupeKey", "description", "id", "imageUrl",
+                "note", "pinned", "scrapeAttempts", "timestamp", "title", "url",
+            ),
+            columns,
+        )
+        db.query(
+            "SELECT id, url, title, description, imageUrl, category, aiSummary, " +
+                "timestamp, dedupeKey, pinned, scrapeAttempts, note FROM links"
+        ).use { c ->
+            assertTrue("the row must survive the copy", c.moveToNext())
+            assertEquals("kot", c.getString(0))
+            assertEquals("https://kotlinlang.org", c.getString(1))
+            assertEquals("Kotlin Compose Guide", c.getString(2))
+            assertEquals("Building UI", c.getString(3))
+            assertEquals("http://img", c.getString(4))
+            assertEquals("Dev", c.getString(5))
+            assertEquals("A guide", c.getString(6))
+            assertEquals(100L, c.getLong(7))
+            assertEquals("kotlinlang.org", c.getString(8))
+            assertEquals(1, c.getInt(9))
+            assertEquals(1, c.getInt(10))
+            assertEquals("my note", c.getString(11))
+            assertFalse("only one row was ever inserted", c.moveToNext())
+        }
+    }
+
+    /**
+     * `isRead` is not an FTS column, so `links_fts`'s definition is unchanged
+     * at v8 - which makes it tempting to skip the drop-and-rebuild. It is not
+     * optional: the copy reassigns every rowid and the external-content index
+     * references `links` by rowid. Without the rebuild, every pre-upgrade link
+     * silently vanishes from search and nothing else in this suite notices.
+     */
+    @Test
+    fun migrate_7_to_8_rebuilds_the_fts_index_so_existing_links_stay_searchable() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS).use { db ->
+            db.execSQL("UPDATE links SET note = 'reread before the offsite' WHERE id = 'kot'")
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 8, true, *ALL_MIGRATIONS).close()
+
+        val db = androidx.room.Room.databaseBuilder(
+            ApplicationProvider.getApplicationContext<android.content.Context>(),
+            AppDatabase::class.java,
+            TEST_DB,
+        ).addMigrations(*ALL_MIGRATIONS).build()
+        helper.closeWhenFinished(db)
+
+        assertEquals(
+            "a title word must still match after links_fts was recreated",
+            listOf("kot"),
+            db.searchIds("kotl"),
+        )
+        assertEquals(
+            "note is still indexed at v8 - the recreate must not have dropped it",
+            listOf("kot"),
+            db.searchIds("offsite"),
+        )
+    }
+
+    /** v8 rebuilds `links`, so prove it does not disturb the trash beside it. */
+    @Test
+    fun migrate_7_to_8_leaves_the_trash_table_alone() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 7, true, *ALL_MIGRATIONS).use { db ->
+            db.execSQL(
+                "INSERT INTO trashed_links (id, json, deletedAt) " +
+                    "VALUES ('t', '{\"id\":\"t\"}', 5)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, *ALL_MIGRATIONS)
+
+        assertEquals(listOf("t"), db.query("SELECT id FROM trashed_links").ids())
+    }
+
+    /** A fresh v4 install must reach v8 in one go. */
+    @Test
+    fun migrate_4_to_8_runs_every_migration_in_sequence() {
+        createV4Database()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, *ALL_MIGRATIONS)
+
+        assertTrue("note should exist at v8", "note" in db.columnsOf("links"))
+        assertFalse("tags must not survive to v8", "tags" in db.columnsOf("links"))
+        assertFalse("isRead must not survive to v8", "isRead" in db.columnsOf("links"))
+        assertTrue("trash table should exist at v8", db.columnsOf("trashed_links").isNotEmpty())
+    }
+
     /** Search must still work through a live Room instance after migrating. */
     @Test
     fun database_opens_and_searches_after_migrating_from_v1() {
