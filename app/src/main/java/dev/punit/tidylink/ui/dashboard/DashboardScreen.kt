@@ -46,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
@@ -98,6 +100,9 @@ fun DashboardScreen(
     // positions survive switching tabs.
     val gridState = rememberLazyGridState()
     val pinnedGridState = rememberLazyGridState()
+
+    // One source feeds every glass surface (pill nav, pinned search bar).
+    val hazeState = remember { HazeState() }
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
     // (added manually, shared in, or imported) - but not on deletes.
@@ -337,44 +342,90 @@ fun DashboardScreen(
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-        when (currentTab) {
-            DashboardTab.Links -> LinksTab(
-                viewModel = viewModel,
-                uiState = uiState,
-                query = query,
-                lazyLinks = lazyLinks,
-                hasProviders = providers.isNotEmpty(),
-                providerBannerDismissed = providerBannerDismissed,
-                onDismissProviderBanner = { providerBannerDismissed = true },
-                gridState = gridState,
-                onShowSortSheet = { showSortSheet = true },
-                onShowToolsSheet = { showToolsSheet = true },
-                onShowAiProviders = { showAiProviders = true },
-                onOpenDetail = { selectedLinkId = it },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
-
-            DashboardTab.Pinned -> {
-                val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
-                val pinnedEmpty = lazyPinned.itemCount == 0 &&
-                    lazyPinned.loadState.refresh !is LoadState.Loading
-                if (pinnedEmpty) {
-                    EmptyState(
-                        text = stringResource(R.string.empty_no_pinned),
+            Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+                when (currentTab) {
+                    DashboardTab.Links -> LinksTab(
+                        viewModel = viewModel,
+                        uiState = uiState,
+                        query = query,
+                        lazyLinks = lazyLinks,
+                        hasProviders = providers.isNotEmpty(),
+                        providerBannerDismissed = providerBannerDismissed,
+                        onDismissProviderBanner = { providerBannerDismissed = true },
+                        gridState = gridState,
+                        onShowSortSheet = { showSortSheet = true },
+                        onShowToolsSheet = { showToolsSheet = true },
+                        onShowAiProviders = { showAiProviders = true },
+                        onOpenDetail = { selectedLinkId = it },
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding),
                     )
-                } else {
-                    LinksGrid(
-                        lazyLinks = lazyPinned,
-                        gridState = pinnedGridState,
-                        uiState = uiState,
-                        viewModel = viewModel,
-                        onOpenDetail = { selectedLinkId = it },
-                        animateEntrance = false,
+
+                    DashboardTab.Pinned -> {
+                        val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
+                        val pinnedEmpty = lazyPinned.itemCount == 0 &&
+                            lazyPinned.loadState.refresh !is LoadState.Loading
+                        if (pinnedEmpty) {
+                            EmptyState(
+                                text = stringResource(R.string.empty_no_pinned),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding),
+                            )
+                        } else {
+                            LinksGrid(
+                                lazyLinks = lazyPinned,
+                                gridState = pinnedGridState,
+                                uiState = uiState,
+                                viewModel = viewModel,
+                                onOpenDetail = { selectedLinkId = it },
+                                animateEntrance = false,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding),
+                            )
+                        }
+                    }
+
+                    DashboardTab.Settings -> SettingsTab(
+                        themeMode = themeMode,
+                        onThemeClick = { showThemeSheet = true },
+                        onAiProviders = { showAiProviders = true },
+                        onExport = { exportLauncher.launch("tidylink-backup.json") },
+                        onImportBookmarks = { showBookmarkImport = true },
+                        backupState = backupState,
+                        // Turning it ON always re-opens the picker: the row is also
+                        // the recovery path when the chosen folder has gone away.
+                        onToggleAutoBackup = {
+                            if (backupState.enabled) {
+                                viewModel.disableBackup()
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        resources.getString(R.string.msg_auto_backup_disabled)
+                                    )
+                                }
+                            } else {
+                                backupFolderLauncher.launch(null)
+                            }
+                        },
+                        onImportJson = {
+                            importLauncher.launch(
+                                arrayOf("application/json", "application/octet-stream")
+                            )
+                        },
+                        onShowIntro = viewModel::replayIntro,
+                        onOpenRepo = { openLink(context, REPO_URL) },
+                        updateState = updateState,
+                        onUpdateClick = {
+                            when (val state = updateState) {
+                                is UpdateState.Available -> viewModel.downloadUpdate()
+                                is UpdateState.ReadyToInstall -> installApk(context, state.file)
+                                // Row is disabled in these states; nothing to do.
+                                UpdateState.Checking, is UpdateState.Downloading -> Unit
+                                else -> viewModel.checkForUpdates()
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding),
@@ -382,59 +433,16 @@ fun DashboardScreen(
                 }
             }
 
-            DashboardTab.Settings -> SettingsTab(
-                themeMode = themeMode,
-                onThemeClick = { showThemeSheet = true },
-                onAiProviders = { showAiProviders = true },
-                onExport = { exportLauncher.launch("tidylink-backup.json") },
-                onImportBookmarks = { showBookmarkImport = true },
-                backupState = backupState,
-                // Turning it ON always re-opens the picker: the row is also
-                // the recovery path when the chosen folder has gone away.
-                onToggleAutoBackup = {
-                    if (backupState.enabled) {
-                        viewModel.disableBackup()
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                resources.getString(R.string.msg_auto_backup_disabled)
-                            )
-                        }
-                    } else {
-                        backupFolderLauncher.launch(null)
-                    }
-                },
-                onImportJson = {
-                    importLauncher.launch(
-                        arrayOf("application/json", "application/octet-stream")
-                    )
-                },
-                onShowIntro = viewModel::replayIntro,
-                onOpenRepo = { openLink(context, REPO_URL) },
-                updateState = updateState,
-                onUpdateClick = {
-                    when (val state = updateState) {
-                        is UpdateState.Available -> viewModel.downloadUpdate()
-                        is UpdateState.ReadyToInstall -> installApk(context, state.file)
-                        // Row is disabled in these states; nothing to do.
-                        UpdateState.Checking, is UpdateState.Downloading -> Unit
-                        else -> viewModel.checkForUpdates()
-                    }
-                },
+            BottomPillNav(
+                currentTab = currentTab,
+                onSelect = { currentTab = it },
+                onAdd = { showAddDialog = true },
+                hazeState = hazeState,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp),
             )
-        }
-
-        BottomPillNav(
-            currentTab = currentTab,
-            onSelect = { currentTab = it },
-            onAdd = { showAddDialog = true },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp),
-        )
         }
     }
 
