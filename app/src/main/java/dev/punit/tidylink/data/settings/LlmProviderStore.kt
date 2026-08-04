@@ -194,7 +194,7 @@ class LlmProviderStore(context: Context) {
         emptyMap()
     }
 
-    /** Fixes the common URL mistakes so Retrofit doesn't reject the entry. */
+    /** Fixes the common URL mistakes before the entry is ever used. */
     private fun LlmProvider.sanitized(): LlmProvider {
         var url = baseUrl.trim()
         if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://$url"
