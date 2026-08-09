@@ -201,15 +201,27 @@ fun DashboardScreen(
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
     // (added manually, shared in, or imported) - but not on deletes.
+    //
+    // grew/topChanged alone are not reliable signals: Room invalidates this
+    // screen's PagingSource on ANY write to `links` (the background
+    // enrichment sweep, thumbnail recovery, etc. all write to rows that may
+    // be far from the head), and during the resulting reload
+    // itemSnapshotList's local index 0 can transiently be a different item
+    // than the true first link. That false positive used to fire this
+    // effect while scrolled deep in the list, snapping the reader back to
+    // the top mid-scroll. Guarded here: only ever auto-scroll if the reader
+    // is already at (or very near) the top, which is also the only case
+    // where "reveal the new link" is the right behavior in the first place.
     val firstLinkId = lazyLinks.itemSnapshotList.items.firstOrNull()?.id
     var lastTopId by remember { mutableStateOf(firstLinkId) }
     var lastCount by remember { mutableIntStateOf(lazyLinks.itemCount) }
     LaunchedEffect(firstLinkId, lazyLinks.itemCount) {
         val grew = lazyLinks.itemCount > lastCount
         val topChanged = firstLinkId != null && firstLinkId != lastTopId
+        val readerAtTop = gridState.firstVisibleItemIndex <= 1
         lastTopId = firstLinkId
         lastCount = lazyLinks.itemCount
-        if (grew && topChanged) gridState.animateScrollToItem(0)
+        if (grew && topChanged && readerAtTop) gridState.animateScrollToItem(0)
     }
 
     // Changing the sort order starts the reader back at the top.

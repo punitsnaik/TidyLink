@@ -42,17 +42,53 @@ import kotlin.math.roundToInt
 private val THUMB_HEIGHT = 48.dp
 
 /**
+ * Height of every row before [row], in pixels.
+ *
+ * ponytail: O(rows) and walked twice per frame. At a few thousand rows that
+ * is tens of microseconds against a 16ms budget; if a library ever gets big
+ * enough to matter, keep a running prefix-sum array instead of re-walking.
+ */
+private fun heightAbove(row: Int, rowHeightPx: (Int) -> Int): Long {
+    var sum = 0L
+    for (r in 0 until row) sum += rowHeightPx(r).coerceAtLeast(0)
+    return sum
+}
+
+/**
  * Thumb position (0..1) to a link index, clamped into the list.
+ *
+ * The exact inverse of [fastScrollFraction], walking the same per-row
+ * heights - so releasing a drag cannot make the thumb jump to a different
+ * place than the one the user let go of. A fraction-times-itemCount
+ * shortcut is only equivalent when every row is the same height, and these
+ * rows are emphatically not.
  *
  * [itemCount] can legitimately be 0 - AnimatedVisibility keeps composing
  * during the exit fade, and paging can invalidate mid-drag - and a naive
  * `coerceIn(0, itemCount - 1)` throws on an empty list. That crash shipped
  * once; this is the one place it can happen, so it lives behind a test.
  */
-internal fun fastScrollTargetIndex(fraction: Float, itemCount: Int): Int =
-    (fraction * (itemCount - 1))
-        .roundToInt()
-        .coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+internal fun fastScrollTargetIndex(
+    fraction: Float,
+    itemCount: Int,
+    columns: Int,
+    totalRows: Int,
+    viewportHeightPx: Int,
+    rowHeightPx: (Int) -> Int,
+): Int {
+    if (itemCount <= 0 || totalRows <= 0 || columns <= 0) return 0
+    val last = itemCount - 1
+    val travelPx = heightAbove(totalRows, rowHeightPx) - viewportHeightPx
+    if (travelPx <= 0L) return 0
+    val targetPx = (fraction.coerceIn(0f, 1f) * travelPx).toLong()
+    var accumulated = 0L
+    var row = 0
+    while (row < totalRows - 1 && accumulated + rowHeightPx(row) <= targetPx) {
+        accumulated += rowHeightPx(row)
+        row++
+    }
+    return (row * columns).coerceIn(0, last)
+}
 
 /**
  * Where the thumb sits, 0..1, while the LIST is driving it.
@@ -70,25 +106,35 @@ internal fun fastScrollTargetIndex(fraction: Float, itemCount: Int): Int =
  * BACKWARDS while the list scrolls forwards - visible jitter on a short
  * library, where one item is a large share of the track.
  *
- * ponytail: [rowHeightPx] is meant to be an average over the visible rows,
- * not one row's exact height, so mixed card heights wash out instead of
- * skewing the estimate. Still an approximation, not a guarantee - exact
- * would mean measuring every row in the library.
+ * It measures PIXELS, not rows. Mapping the thumb over row indexes makes it
+ * travel the same distance for every row regardless of how tall that row
+ * is, so a run of short cards races the thumb down the track and a run of
+ * tall ones drags it - the "sometimes it moves very fast in the middle"
+ * report. Weighting each row by its measured height makes the thumb move at
+ * one speed for one speed of scrolling, everywhere in the library.
+ *
+ * [rowHeightPx] supplies each row's measured height (falling back to the
+ * library average for rows not yet laid out). It is the SAME function that
+ * sizes the sub-row term, which is what makes the mapping continuous by
+ * construction: scrolling to the bottom of row N puts the thumb at exactly
+ * the pixel where row N+1 starts, whatever the two rows' heights are.
  */
 internal fun fastScrollFraction(
     firstVisibleRow: Int,
     rowScrollOffsetPx: Int,
-    rowHeightPx: Int,
     totalRows: Int,
     viewportHeightPx: Int,
+    rowHeightPx: (Int) -> Int,
 ): Float {
-    if (rowHeightPx <= 0 || totalRows <= 0) return 0f
-    // Fractional on purpose: rounding the visible row count to a whole
-    // number reintroduces the same off-by-one wobble in the denominator.
-    val scrollableRows = totalRows - viewportHeightPx.toFloat() / rowHeightPx
-    if (scrollableRows <= 0f) return 0f
-    val current = firstVisibleRow + rowScrollOffsetPx.toFloat() / rowHeightPx
-    return (current / scrollableRows).coerceIn(0f, 1f)
+    if (totalRows <= 0) return 0f
+    val travelPx = heightAbove(totalRows, rowHeightPx) - viewportHeightPx
+    if (travelPx <= 0L) return 0f
+    // Clamped to this row's own height: the sub-row term may never carry
+    // past where the next row begins, so the sequence stays monotonic even
+    // if the cached height is momentarily stale.
+    val withinRow = rowScrollOffsetPx.coerceIn(0, rowHeightPx(firstVisibleRow).coerceAtLeast(0))
+    val scrolledPx = heightAbove(firstVisibleRow, rowHeightPx) + withinRow
+    return (scrolledPx.toFloat() / travelPx).coerceIn(0f, 1f)
 }
 
 /**
@@ -121,41 +167,104 @@ internal fun FastScroller(
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var scrollJob: Job? by remember { mutableStateOf(null) }
+    // Measured height per LINK row (header row excluded from the key), written
+    // from inside layoutFraction's derivedStateOf below. Recorded once per row
+    // rather than re-averaged from the visible window every frame, so a slow
+    // drag lingering on one row cannot bias the average toward it. Keyed on
+    // indexOffset because the header occupying row 0 shifts every link's raw
+    // row number by one; a cache carried across a selection-mode toggle would
+    // silently point its keys at the wrong rows.
+    val rowHeightByIndex = remember(indexOffset) { mutableMapOf<Int, Int>() }
+    // Widest row seen this session. Counting columns from the visible items
+    // alone reads 1 when only a partial last row is on screen, which doubles
+    // totalRows and halves the thumb's position for that frame. A grid's
+    // column count never shrinks mid-session, so the maximum is the truth.
+    // Deliberately a plain holder, not a State: it is written from inside
+    // derivedStateOf, and writing an observable there would loop.
+    val columnsSeen = remember(indexOffset) { intArrayOf(1) }
+    // Library-wide average, refreshed whenever the cache above grows. Rows
+    // the grid has never laid out have no measured height, so they stand in
+    // at the average until they are scrolled into view - which is what keeps
+    // the track a sane length before the whole library has been visited.
+    val avgRowHeight = remember(indexOffset) { intArrayOf(0) }
+    // One definition of "how tall is row r", shared by the thumb's position
+    // and by the drag's inverse mapping. If these two ever disagreed, letting
+    // go of a drag would snap the thumb somewhere else.
+    val rowHeightAt = remember(indexOffset) {
+        { row: Int -> rowHeightByIndex[row] ?: avgRowHeight[0] }
+    }
 
-    // Where the list actually is, as a 0..1 fraction of scrollable rows.
-    // [indexOffset] discounts non-link items the grid puts ahead of the data
-    // (the collapsing header), so the thumb still maps over links only.
+    // Where the list actually is, as a 0..1 fraction of the scrollable
+    // PIXELS. [indexOffset] discounts non-link items the grid puts ahead of
+    // the data (the collapsing header), so the thumb still maps over links.
     val layoutFraction by remember(indexOffset) {
         derivedStateOf {
             val info = gridState.layoutInfo
             // Header excluded: it is full-span and taller than a card, so
             // letting it define the row height would skew every row after it.
             val links = info.visibleItemsInfo.filter { it.index >= indexOffset }
-            val firstLink = links.firstOrNull() ?: return@derivedStateOf 0f
-            val columns = (links.maxOf { it.column } + 1).coerceAtLeast(1)
+            if (links.isEmpty()) return@derivedStateOf 0f
+            // The header takes a full-span grid row of its own ahead of the
+            // links, so link rows are numbered one behind grid rows.
+            val headerRows = if (indexOffset > 0) 1 else 0
+            columnsSeen[0] = maxOf(columnsSeen[0], links.maxOf { it.column } + 1)
+            val columns = columnsSeen[0]
+
+            // A grid row is as tall as its TALLEST card, not as tall as
+            // whichever of its cards happened to be iterated last. Recorded
+            // once per row, so the average converges instead of tracking
+            // whichever 2-4 rows are on screen this frame.
+            for (item in links) {
+                val row = item.row - headerRows
+                rowHeightByIndex[row] = maxOf(rowHeightByIndex[row] ?: 0, item.size.height)
+            }
+            avgRowHeight[0] = rowHeightByIndex.values.average().roundToInt()
+
+            // BOTH the row and the offset within it come from gridState's
+            // scroll position - never one from there and the other from
+            // layoutInfo. Mixing the two was the actual bug behind four
+            // rounds of thumb jitter. firstVisibleItemIndex and
+            // layoutInfo.visibleItemsInfo are published by different passes,
+            // so around every row boundary they disagree for a frame or two
+            // about which row is first; pairing layoutInfo's row with
+            // gridState's offset then placed the thumb a whole row away, and
+            // the two sources took turns winning frame by frame.
+            //
+            // Measured, not assumed: pixel-tracking screen-20260809-143922.mp4
+            // at its native 60fps shows a square wave of a FLAT 137px on a
+            // 2123px track, riding on an otherwise smooth fling - amplitude
+            // independent of both position and velocity, and the flips locked
+            // to two fixed phases inside each 319px row. On that library's
+            // geometry 137px works out to 1.10 rows: one row, exactly. A
+            // constant one-row offset is why none of the previous fixes
+            // helped - smoothing, EMAs, per-row height caches and freezing
+            // the item count all adjust *magnitudes*, and none of them made
+            // the two reads agree about *which row* is first.
+            val firstLinkIndex =
+                (gridState.firstVisibleItemIndex - indexOffset).coerceAtLeast(0)
+            val firstVisibleRow = firstLinkIndex / columns
+            // Zero while the header is still the first visible item: the
+            // offset would be measuring the header, and the thumb belongs at
+            // the top anyway.
+            val rowScrollOffsetPx = if (gridState.firstVisibleItemIndex >= indexOffset) {
+                gridState.firstVisibleItemScrollOffset
+            } else {
+                0
+            }
+
+            // Read live from layoutInfo, NOT from the itemCount parameter:
+            // this block is remember(indexOffset), so anything captured from
+            // the composition freezes at whatever it was when the block was
+            // first built. Same trap that nearly shipped a frozen scroll
+            // state here once already.
             val linkCount = (info.totalItemsCount - indexOffset).coerceAtLeast(0)
+
             fastScrollFraction(
-                // The header occupies one full-span row of its own, so the
-                // grid's row numbers run one ahead of the link rows.
-                firstVisibleRow = (firstLink.row - if (indexOffset > 0) 1 else 0)
-                    .coerceAtLeast(0),
-                // Only meaningful once a link IS the first visible item -
-                // while the header is still on screen this offset measures
-                // the header, and the thumb belongs at the top anyway.
-                rowScrollOffsetPx = if (gridState.firstVisibleItemIndex >= indexOffset) {
-                    gridState.firstVisibleItemScrollOffset
-                } else {
-                    0
-                },
-                // Averaged over every visible row, not just the first one -
-                // LinkCard is content-sized, so a single row's height is a
-                // noisy estimate that made the thumb step backwards as
-                // differently-sized cards scrolled past. The average is
-                // steadier frame to frame. Confirmed on-device 2026-08-04:
-                // see CLAUDE.md "SCREEN RECORDING REVIEW".
-                rowHeightPx = links.sumOf { it.size.height } / links.size,
+                firstVisibleRow = firstVisibleRow,
+                rowScrollOffsetPx = rowScrollOffsetPx,
                 totalRows = ceil(linkCount.toFloat() / columns).toInt(),
                 viewportHeightPx = info.viewportSize.height,
+                rowHeightPx = rowHeightAt,
             )
         }
     }
@@ -189,7 +298,24 @@ internal fun FastScroller(
             val thumbHeightPx = with(density) { THUMB_HEIGHT.toPx() }
             val travelPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(1f)
             val offsetY = (fraction * travelPx).roundToInt()
-            val targetIndex = fastScrollTargetIndex(fraction, itemCount)
+            // The exact inverse of layoutFraction, fed the SAME inputs read
+            // the same way - so the bubble names the link the thumb points
+            // at, and letting go of a drag leaves the thumb where the finger
+            // left it instead of snapping.
+            val indexAtFraction: (Float) -> Int = {
+                val info = gridState.layoutInfo
+                val links = (info.totalItemsCount - indexOffset).coerceAtLeast(0)
+                val cols = columnsSeen[0]
+                fastScrollTargetIndex(
+                    fraction = it,
+                    itemCount = links,
+                    columns = cols,
+                    totalRows = ceil(links.toFloat() / cols).toInt(),
+                    viewportHeightPx = info.viewportSize.height,
+                    rowHeightPx = rowHeightAt,
+                )
+            }
+            val targetIndex = indexAtFraction(fraction)
 
             if (dragging) {
                 bubbleTextForIndex(targetIndex)?.let { label ->
@@ -232,7 +358,7 @@ internal fun FastScroller(
                                 change.consume()
                                 dragFraction =
                                     (dragFraction + delta / travelPx).coerceIn(0f, 1f)
-                                val target = fastScrollTargetIndex(dragFraction, itemCount)
+                                val target = indexAtFraction(dragFraction)
                                 // Cancel any scroll still catching up from a prior pointer
                                 // move - without this, scrollToItem calls queue up (the grid
                                 // serializes them) and the list lags behind the finger,
