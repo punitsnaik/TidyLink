@@ -26,8 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import dev.punit.tidylink.data.local.LinkEntity
-import dev.punit.tidylink.ui.LinkUiState
-import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -52,13 +50,27 @@ internal fun EmptyState(text: String, modifier: Modifier = Modifier) {
  * the content instead of animating its own height. That is deliberate: an
  * AnimatedVisibility header above the grid re-measures the whole grid on
  * every frame of the collapse, which is what made scrolling stutter.
+ *
+ * This takes the three `LinkUiState` fields it actually uses, NOT the whole
+ * state object, and callbacks rather than the ViewModel. That is a
+ * performance decision, not tidiness: `LinkUiState` is rebuilt whenever any
+ * of thirteen flows emits, four of which are DAO counts that Room re-emits
+ * on every single write to `links`. The background enrichment sweep writes
+ * constantly, so passing the whole state made a counter ticking from 47 to
+ * 46 re-run this grid's item provider and attempt a recomposition of every
+ * visible card. The `Set`s below are referentially unchanged when only a
+ * count moves, so the grid now skips instead.
  */
 @Composable
 internal fun LinksGrid(
     lazyLinks: LazyPagingItems<LinkEntity>,
     gridState: LazyGridState,
-    uiState: LinkUiState,
-    viewModel: LinkViewModel,
+    selectedIds: Set<String>,
+    refreshingIds: Set<String>,
+    isSelectionMode: Boolean,
+    onToggleSelection: (String) -> Unit,
+    onRefreshLink: (LinkEntity) -> Unit,
+    onImageFailed: (LinkEntity) -> Unit,
     onOpenDetail: (String) -> Unit,
     // Deletes are routed up to DashboardScreen's confirmation dialog rather
     // than straight to the ViewModel - a swipe is far too easy to trigger by
@@ -101,26 +113,30 @@ internal fun LinksGrid(
         items(
             count = lazyLinks.itemCount,
             key = lazyLinks.itemKey { it.id },
+            // Without this, cards and the header share one untyped bucket and
+            // LazyGrid cannot reuse a card's subcomposition for the next card
+            // scrolling in - it throws the composition away and rebuilds it.
+            contentType = { "link" },
         ) { index ->
             val link = lazyLinks[index] ?: return@items
             LinkCard(
                 link = link,
-                selected = link.id in uiState.selectedIds,
+                selected = link.id in selectedIds,
                 index = index,
                 animateEntrance = animateInitialEntrance && index < 8,
-                showActions = !uiState.isSelectionMode,
-                isRefreshing = link.id in uiState.refreshingIds,
-                onRefresh = { viewModel.refreshLink(link) },
+                showActions = !isSelectionMode,
+                isRefreshing = link.id in refreshingIds,
+                onRefresh = { onRefreshLink(link) },
                 onDelete = { onRequestDelete(link) },
-                onImageFailed = { viewModel.recoverThumbnail(link) },
+                onImageFailed = { onImageFailed(link) },
                 onClick = {
-                    if (uiState.isSelectionMode) {
-                        viewModel.toggleSelection(link.id)
+                    if (isSelectionMode) {
+                        onToggleSelection(link.id)
                     } else {
                         onOpenDetail(link.id)
                     }
                 },
-                onLongClick = { viewModel.toggleSelection(link.id) },
+                onLongClick = { onToggleSelection(link.id) },
                 modifier = Modifier.animateItem(
                     fadeInSpec = tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing),
                     fadeOutSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing),
