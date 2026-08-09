@@ -6,11 +6,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +71,9 @@ import kotlinx.coroutines.withContext
 
 /** Public repository - linked from Settings → About. */
 private const val REPO_URL = "https://github.com/punitsnaik/TidyLink"
+
+/** Backdrop blur radius while any modal is open. See its use site. */
+private val BACKDROP_BLUR = 40.dp
 
 /**
  * An action waiting on confirmation: what to say, and what to run if the
@@ -141,7 +142,7 @@ fun DashboardScreen(
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
     var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
-    var showTrashSheet by rememberSaveable { mutableStateOf(false) }
+    var showTrash by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
@@ -182,9 +183,14 @@ fun DashboardScreen(
     // were separate flags here, AND the delete dialog, which never was. So
     // the delete confirmation now blurs the backdrop like every other modal
     // - a deliberate consequence of the merge, not a stray change.
+    // showTrash is deliberately NOT here. Trash is a full-screen page now,
+    // not a modal window - it covers the very content the blur would be
+    // blurring, so the blur would be a per-frame cost drawing something
+    // nobody can see. Confirmations raised from inside it are still dialogs
+    // and still set this via pendingConfirm.
     val modalOpen = showAddDialog || showSortSheet || showThemeSheet ||
         showToolsSheet || showAiProviders || showMoveDialog ||
-        showBookmarkImport || showTrashSheet || pendingConfirm != null ||
+        showBookmarkImport || pendingConfirm != null ||
         selectedLinkId != null || editingLinkId != null
     // Paired with SHEET_GLASS_ALPHA - the two are one effect and should be
     // tuned together. 20.dp left the backdrop only softly out of focus and
@@ -193,11 +199,15 @@ fun DashboardScreen(
     // enough that individual cards behind it stop being identifiable, which
     // is what keeps text on the sheet readable at a low alpha.
     // Modifier.blur is a no-op below API 31, so this costs nothing there.
-    val backdropBlur by animateDpAsState(
-        targetValue = if (modalOpen) 40.dp else 0.dp,
-        animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
-        label = "backdropBlur",
-    )
+    //
+    // NOT animated, deliberately - it used to ramp 0 -> 40.dp over 300ms via
+    // animateDpAsState. A blur radius is not a cheap animatable property:
+    // every distinct radius rebuilds the RenderEffect and re-renders the
+    // WHOLE screen into an offscreen layer, and it did that for 18 frames at
+    // precisely the moment the sheet was also animating in. That ramp was
+    // the sheet-opening stutter. The sheet's own slide-in and the scrim
+    // carry the transition; the blur only ever needed to be there.
+    val backdropBlur = if (modalOpen) BACKDROP_BLUR else 0.dp
 
     // Auto-scroll to the top when a NEW link lands at the head of the list
     // (added manually, shared in, or imported) - but not on deletes.
@@ -454,13 +464,17 @@ fun DashboardScreen(
                     targetState = currentTab,
                     transitionSpec = {
                         // M3 fade-through: outgoing fades fast, incoming
-                        // fades in with a slight scale-up after it.
-                        (fadeIn(tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)) +
-                            scaleIn(
-                                initialScale = 0.94f,
-                                animationSpec = tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing),
-                            ))
-                            .togetherWith(fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)))
+                        // fades in after it.
+                        //
+                        // The incoming screen used to also scaleIn(0.94f).
+                        // Scaling forces BOTH screens into rasterized
+                        // graphics layers for the duration - two full paging
+                        // grids at once, on a transition the user fires
+                        // constantly. A plain fade-through is the canonical
+                        // M3 top-level transition and costs one alpha.
+                        fadeIn(
+                            tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)
+                        ).togetherWith(fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)))
                     },
                     label = "tabTransition",
                 ) { tab ->
@@ -501,8 +515,12 @@ fun DashboardScreen(
                                 LinksGrid(
                                     lazyLinks = lazyPinned,
                                     gridState = pinnedGridState,
-                                    uiState = uiState,
-                                    viewModel = viewModel,
+                                    selectedIds = uiState.selectedIds,
+                                    refreshingIds = uiState.refreshingIds,
+                                    isSelectionMode = uiState.isSelectionMode,
+                                    onToggleSelection = viewModel::toggleSelection,
+                                    onRefreshLink = viewModel::refreshLink,
+                                    onImageFailed = viewModel::recoverThumbnail,
                                     onOpenDetail = { selectedLinkId = it },
                                     onRequestDelete = { link ->
                                         pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
@@ -602,6 +620,41 @@ fun DashboardScreen(
                     .navigationBarsPadding()
                     .padding(bottom = 12.dp),
             )
+
+            // Trash is a full page, not a sheet. Drawn last inside this Box
+            // so it covers the grid, the glass search bar and the pill nav;
+            // it is opaque, so nothing behind it composes visibly and there
+            // is no backdrop to blur (see TrashScreen's KDoc). It is
+            // deliberately absent from `modalOpen` for that reason.
+            AnimatedVisibility(
+                visible = showTrash,
+                enter = fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)),
+                exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                val trashed by viewModel.trashedLinks.collectAsStateWithLifecycle()
+                TrashScreen(
+                    trashed = trashed,
+                    onRestore = viewModel::restoreFromTrash,
+                    onDeleteForever = { ids ->
+                        pendingConfirm = deleteConfirm(ids.size, permanent = true) {
+                            viewModel.deleteFromTrashForever(ids)
+                        }
+                    },
+                    // Emptying the trash is the one genuinely irreversible
+                    // action in the app - everything else here can be undone.
+                    // The page stays open behind the dialog, unlike the sheet
+                    // it replaces, which had to close to get out of the way.
+                    onEmptyTrash = {
+                        pendingConfirm = PendingConfirm(
+                            title = R.string.dialog_empty_trash_title,
+                            body = R.string.dialog_empty_trash_body,
+                            action = R.string.action_empty_trash,
+                        ) { viewModel.emptyTrash() }
+                    },
+                    onClose = { showTrash = false },
+                )
+            }
         }
     }
 
@@ -669,30 +722,6 @@ fun DashboardScreen(
         )
     }
 
-    if (showTrashSheet) {
-        val trashed by viewModel.trashedLinks.collectAsStateWithLifecycle()
-        TrashSheet(
-            trashed = trashed,
-            onRestore = viewModel::restoreFromTrash,
-            onDeleteForever = { ids ->
-                pendingConfirm = deleteConfirm(ids.size, permanent = true) {
-                    viewModel.deleteFromTrashForever(ids)
-                }
-            },
-            // Emptying the trash is the one genuinely irreversible action in
-            // the app - everything else this sheet offers can be undone.
-            onEmptyTrash = {
-                showTrashSheet = false
-                pendingConfirm = PendingConfirm(
-                    title = R.string.dialog_empty_trash_title,
-                    body = R.string.dialog_empty_trash_body,
-                    action = R.string.action_empty_trash,
-                ) { viewModel.emptyTrash() }
-            },
-            onDismiss = { showTrashSheet = false },
-        )
-    }
-
     if (showBookmarkImport) {
         BookmarkImportDialog(
             onConfirm = { useFolders ->
@@ -733,7 +762,7 @@ fun DashboardScreen(
             },
             onOpenTrash = {
                 showToolsSheet = false
-                showTrashSheet = true
+                showTrash = true
             },
             // Tidy-up is a bulk, non-undoable rename - always confirm first.
             onTidyCategories = {
