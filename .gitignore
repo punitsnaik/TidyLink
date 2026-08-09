@@ -4,6 +4,13 @@
 /.idea/
 .DS_Store
 /build
+# Every module's build dir, not just the root and app/. Gradle writes a
+# per-module `/build` .gitignore (see app/.gitignore), so a NEW module starts
+# life with its build output untracked by nothing - `desktop/` was one
+# `git add -A` away from committing .class files, kspCaches and test-result
+# binaries into a public repo. One line here covers every module, including
+# ones that don't exist yet.
+build/
 /captures
 .externalNativeBuild
 .cxx
