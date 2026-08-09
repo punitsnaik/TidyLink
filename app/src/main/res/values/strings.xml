@@ -118,6 +118,7 @@
         <item quantity="one">%1$d deleted link, kept for 90 days</item>
         <item quantity="other">%1$d deleted links, kept for 90 days</item>
     </plurals>
+    <string name="cd_back">Back</string>
     <string name="sheet_trash_title">Trash</string>
     <string name="sheet_trash_subtitle">Deleted links are kept for 90 days</string>
     <string name="trash_empty">Nothing in the trash.</string>
