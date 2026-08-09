@@ -1,19 +1,20 @@
 package dev.punit.tidylink.ui.dashboard
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
@@ -22,9 +23,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,7 +40,23 @@ import dev.punit.tidylink.data.repository.TrashedLink
 import java.util.concurrent.TimeUnit
 
 /**
- * Deleted links, recoverable for 90 days.
+ * Deleted links, recoverable for 90 days. A full screen, not a sheet.
+ *
+ * It was a `ModalBottomSheet` whose list was capped at `heightIn(max =
+ * 400.dp)` - roughly three cards - inside a sheet that itself only covered
+ * part of the screen. Trash holds up to 90 days of deletions, and the one
+ * thing people come here to do is find a specific link they regret, so the
+ * cap was fighting the feature.
+ *
+ * Rendered as an overlay by `DashboardScreen` rather than as a navigation
+ * destination: the app has no navigation library, and adding one to reach a
+ * single screen would be a dependency for a `Boolean`.
+ *
+ * It is NOT a modal window, so it deliberately does not blur the backdrop
+ * the way the sheets do - a full-screen page covers what it would be
+ * blurring, so the blur would be a per-frame cost with nothing to show for
+ * it. The delete-forever and empty-trash confirmations raised from here are
+ * still dialogs and still blur.
  *
  * Shows days remaining rather than the deletion date: "deleted 12 March"
  * needs mental arithmetic against a retention period the user doesn't
@@ -46,71 +64,81 @@ import java.util.concurrent.TimeUnit
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun TrashSheet(
+internal fun TrashScreen(
     trashed: List<TrashedLink>,
     onRestore: (List<String>) -> Unit,
     onDeleteForever: (List<String>) -> Unit,
     onEmptyTrash: () -> Unit,
-    onDismiss: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = glassSheetColor(),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    ) {
-        Column(
-            modifier = Modifier
-                .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.sheet_trash_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.sheet_trash_subtitle),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (trashed.isNotEmpty()) {
-                    TextButton(onClick = onEmptyTrash) {
+    BackHandler(onBack = onClose)
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
                         Text(
-                            text = stringResource(R.string.action_empty_trash),
-                            color = MaterialTheme.colorScheme.error,
+                            text = stringResource(R.string.sheet_trash_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.sheet_trash_subtitle),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-            }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back),
+                        )
+                    }
+                },
+                actions = {
+                    if (trashed.isNotEmpty()) {
+                        TextButton(onClick = onEmptyTrash) {
+                            Text(
+                                text = stringResource(R.string.action_empty_trash),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+            )
+        },
+    ) { innerPadding ->
+        if (trashed.isEmpty()) {
+            EmptyState(
+                text = stringResource(R.string.trash_empty),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            )
+            return@Scaffold
+        }
 
-            Spacer(Modifier.height(8.dp))
-
-            if (trashed.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.trash_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp),
+        // Unbounded, unlike the sheet it replaces: the whole point of the
+        // page is that a long trash is scrollable.
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .navigationBarsPadding(),
+        ) {
+            items(trashed, key = { it.link.id }, contentType = { "trash" }) { item ->
+                TrashRow(
+                    item = item,
+                    onRestore = { onRestore(listOf(item.link.id)) },
+                    onDeleteForever = { onDeleteForever(listOf(item.link.id)) },
                 )
-                return@Column
-            }
-
-            // Bounded: emptying a large trash one row at a time is a real
-            // use, and an unbounded column inside a sheet can't scroll.
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.heightIn(max = 400.dp),
-            ) {
-                items(trashed, key = { it.link.id }) { item ->
-                    TrashRow(
-                        item = item,
-                        onRestore = { onRestore(listOf(item.link.id)) },
-                        onDeleteForever = { onDeleteForever(listOf(item.link.id)) },
-                    )
-                }
             }
         }
     }

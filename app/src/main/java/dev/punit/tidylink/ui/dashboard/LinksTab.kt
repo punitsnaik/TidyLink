@@ -139,8 +139,13 @@ internal fun LinksTab(
             LinksGrid(
                 lazyLinks = lazyLinks,
                 gridState = gridState,
-                uiState = uiState,
-                viewModel = viewModel,
+                // Three fields, not the whole state - see LinksGrid's KDoc.
+                selectedIds = uiState.selectedIds,
+                refreshingIds = uiState.refreshingIds,
+                isSelectionMode = uiState.isSelectionMode,
+                onToggleSelection = viewModel::toggleSelection,
+                onRefreshLink = viewModel::refreshLink,
+                onImageFailed = viewModel::recoverThumbnail,
                 onOpenDetail = onOpenDetail,
                 onRequestDelete = onRequestDelete,
                 header = header,
