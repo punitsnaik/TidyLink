@@ -24,9 +24,26 @@ object UrlCanonicalizer {
      * URLs in prose.
      */
     fun extractUrls(text: String): List<String> = URL_REGEX.findAll(text)
-        .map { it.value.trimEnd('.', ',', ';', ')', ']', '>', '"', '\'') }
+        .map { trimExtractedUrl(it.value) }
+        .filter(::isValidHttpUrl)
         .distinct()
         .toList()
+
+    private fun trimExtractedUrl(raw: String): String {
+        val url = raw.trimEnd('.', ',', ';', ')', ']', '>', '"', '\'')
+        return if (isValidHttpUrl(url)) url else url.trimEnd('!')
+    }
+
+    /** Parsed lowercase host, or an empty string for malformed input. */
+    fun hostOf(url: String): String = runCatching {
+        URI(cleanUrl(url)).host?.lowercase().orEmpty()
+    }.getOrDefault("")
+
+    /** Exact domain or one of its subdomains, never query/path text. */
+    fun hostMatches(url: String, vararg domains: String): Boolean {
+        val host = hostOf(url)
+        return domains.any { domain -> host == domain || host.endsWith(".$domain") }
+    }
 
     /**
      * Cleans a URL for storage: adds a scheme when missing, lowercases the

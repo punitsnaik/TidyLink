@@ -25,7 +25,7 @@ class LinkEnrichmentWorker(
             repository.completePendingEnrichment(linkId)
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            if (shouldRetry(runAttemptCount, MAX_ATTEMPTS)) Result.retry() else Result.failure()
         }
     }
 

@@ -1,6 +1,7 @@
 package dev.punit.tidylink.ui.dashboard
 
 import androidx.core.net.toUri
+import dev.punit.tidylink.data.UrlCanonicalizer
 
 /**
  * Where a saved URL points, used to label the open CTA
@@ -17,24 +18,27 @@ internal data class LinkSource(
 
 internal fun linkSourceOf(url: String): LinkSource {
     val u = url.lowercase()
-    fun has(vararg parts: String) = parts.any { u.contains(it) }
+    val host = UrlCanonicalizer.hostOf(url)
+    fun domain(vararg names: String) = names.any { host == it || host.endsWith(".$it") }
+    fun label(name: String) = host == name || host.startsWith("$name.") || host.contains(".$name.")
     return when {
-        has("music.youtube.com") -> LinkSource("YouTube Music", true)
-        has("youtube.com", "youtu.be") -> LinkSource("YouTube", true)
-        has("instagram.com") -> LinkSource("Instagram", has("/reel"))
-        has("tiktok.com") -> LinkSource("TikTok", true)
-        has("vimeo.com") -> LinkSource("Vimeo", true)
-        has("open.spotify.com", "spotify.link") -> LinkSource("Spotify", true)
-        has("twitter.com", "://x.com", "://www.x.com") -> LinkSource("X", false)
-        has("amazon.", "amzn.") -> LinkSource("Amazon", false)
-        has("flipkart.com", "fkrt.") -> LinkSource("Flipkart", false)
-        has("reddit.com", "redd.it") -> LinkSource("Reddit", false)
-        has("linkedin.com", "lnkd.in") -> LinkSource("LinkedIn", false)
-        has("facebook.com", "fb.watch", "fb.com") -> LinkSource("Facebook", false)
-        has("pinterest.", "pin.it") -> LinkSource("Pinterest", false)
-        has("github.com") -> LinkSource("GitHub", false)
-        has("play.google.com") -> LinkSource("Play Store", false)
-        has("maps.google.", "goo.gl/maps", "maps.app.goo.gl") -> LinkSource("Maps", false)
+        domain("music.youtube.com") -> LinkSource("YouTube Music", true)
+        domain("youtube.com", "youtu.be") -> LinkSource("YouTube", true)
+        domain("instagram.com") -> LinkSource("Instagram", u.contains("/reel"))
+        domain("tiktok.com") -> LinkSource("TikTok", true)
+        domain("vimeo.com") -> LinkSource("Vimeo", true)
+        domain("open.spotify.com", "spotify.link") -> LinkSource("Spotify", true)
+        domain("twitter.com", "x.com") -> LinkSource("X", false)
+        label("amazon") || label("amzn") -> LinkSource("Amazon", false)
+        domain("flipkart.com") || label("fkrt") -> LinkSource("Flipkart", false)
+        domain("reddit.com", "redd.it") -> LinkSource("Reddit", false)
+        domain("linkedin.com", "lnkd.in") -> LinkSource("LinkedIn", false)
+        domain("facebook.com", "fb.watch", "fb.com") -> LinkSource("Facebook", false)
+        label("pinterest") || domain("pin.it") -> LinkSource("Pinterest", false)
+        domain("github.com") -> LinkSource("GitHub", false)
+        domain("play.google.com") -> LinkSource("Play Store", false)
+        label("google") && host.startsWith("maps.") ||
+            domain("maps.app.goo.gl") || domain("goo.gl") && u.contains("/maps") -> LinkSource("Maps", false)
         else -> LinkSource("", false, isGeneric = true)
     }
 }

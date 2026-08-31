@@ -1,5 +1,6 @@
 package dev.punit.tidylink.data.scraper
 
+import dev.punit.tidylink.data.UrlCanonicalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -68,7 +69,7 @@ class LinkScraperService {
     }
 
     private fun isYouTubeUrl(url: String): Boolean =
-        listOf("youtube.com", "youtu.be").any { url.contains(it, ignoreCase = true) }
+        UrlCanonicalizer.hostMatches(url, "youtube.com", "youtu.be")
 
     /** Blank, "undefined", or URL-shaped - i.e. not a real page title. */
     private fun isJunkTitle(title: String): Boolean {

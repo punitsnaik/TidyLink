@@ -155,8 +155,8 @@ class UpdateChecker(private val context: Context) {
          * never look newer than a well-formed installed version.
          */
         internal fun isRemoteNewer(remote: String, current: String): Boolean {
-            val r = remote.split('.').map { it.trim().toIntOrNull() ?: 0 }
-            val c = current.split('.').map { it.trim().toIntOrNull() ?: 0 }
+            val r = remote.split('.').map { it.trim().toIntOrNull() ?: return false }
+            val c = current.split('.').map { it.trim().toIntOrNull() ?: return false }
             for (i in 0 until maxOf(r.size, c.size)) {
                 val rv = r.getOrElse(i) { 0 }
                 val cv = c.getOrElse(i) { 0 }
