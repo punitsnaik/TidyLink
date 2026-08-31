@@ -268,10 +268,14 @@ private fun LinksHeader(
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
-        } else if (query.isNotBlank() && lazyLinks.loadState.refresh !is LoadState.Loading) {
+        } else if (lazyLinks.loadState.refresh !is LoadState.Loading) {
             Text(
                 text = pluralStringResource(
-                    R.plurals.search_results,
+                    if (query.isBlank() && uiState.selectedCategory == null) {
+                        R.plurals.link_count
+                    } else {
+                        R.plurals.search_results
+                    },
                     lazyLinks.itemCount,
                     lazyLinks.itemCount,
                 ),
