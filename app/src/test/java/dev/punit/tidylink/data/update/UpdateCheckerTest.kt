@@ -33,5 +33,8 @@ class UpdateCheckerTest {
         assertFalse(isRemoteNewer("beta", "1.0"))
         assertFalse(isRemoteNewer("", "1.0"))
         assertFalse(isRemoteNewer("x.y", "1.0"))
+        assertFalse(isRemoteNewer("2.beta", "1.9"))
+        assertFalse(isRemoteNewer("2..0", "1.9"))
+        assertFalse(isRemoteNewer("2.0", "1.beta"))
     }
 }

@@ -29,7 +29,7 @@ class ClassificationRetryWorker(
     }
 
     private fun retryOrGiveUp(): Result =
-        if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+        if (shouldRetry(runAttemptCount, MAX_ATTEMPTS)) Result.retry() else Result.failure()
 
     private companion object {
         const val MAX_ATTEMPTS = 5

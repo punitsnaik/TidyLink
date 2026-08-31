@@ -169,9 +169,32 @@ class UrlCanonicalizerTest {
     fun `extracts urls from complex text with mixed punctuation`() {
         val text = "Go to https://example.com! It's awesome. (See https://example.org for more). Also https://example.net/page."
         assertEquals(
-            listOf("https://example.com!", "https://example.org", "https://example.net/page"),
+            listOf("https://example.com", "https://example.org", "https://example.net/page"),
             UrlCanonicalizer.extractUrls(text),
         )
+    }
+
+    @Test
+    fun `trims sentence punctuation and keeps later valid urls`() {
+        assertEquals(
+            listOf("https://example.com", "https://valid.example/path"),
+            UrlCanonicalizer.extractUrls("Bad https://example.com! then https://valid.example/path"),
+        )
+    }
+
+    @Test
+    fun `keeps a valid bang at the end of a url path`() {
+        assertEquals(
+            listOf("https://en.wikipedia.org/wiki/Yahoo!"),
+            UrlCanonicalizer.extractUrls("Read https://en.wikipedia.org/wiki/Yahoo!"),
+        )
+    }
+
+    @Test
+    fun `host matching ignores path and query text`() {
+        assertTrue(UrlCanonicalizer.hostMatches("https://m.youtube.com/watch?v=1", "youtube.com"))
+        assertFalse(UrlCanonicalizer.hostMatches("https://example.com/youtube.com?q=youtu.be", "youtube.com", "youtu.be"))
+        assertEquals("", UrlCanonicalizer.hostOf("not a url"))
     }
 
     @Test

@@ -194,25 +194,6 @@ class LlmProviderStore(context: Context) {
         emptyMap()
     }
 
-    /** Fixes the common URL mistakes before the entry is ever used. */
-    private fun LlmProvider.sanitized(): LlmProvider {
-        var url = baseUrl.trim()
-        if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://$url"
-        if (!url.endsWith("/")) url += "/"
-        return copy(
-            name = name.trim().ifBlank { hostLabel(url) },
-            baseUrl = url,
-            model = model.trim(),
-            apiKey = apiKey.trim(),
-        )
-    }
-
-    private fun hostLabel(url: String): String = url
-        .removePrefix("https://")
-        .removePrefix("http://")
-        .substringBefore('/')
-        .removePrefix("www.")
-
     private companion object {
         const val PREFS_NAME = "llm_providers"
         const val KEY_PROVIDERS_LEGACY = "providers"
@@ -220,3 +201,26 @@ class LlmProviderStore(context: Context) {
         const val KEY_HEALTH = "provider_health"
     }
 }
+
+/** Fixes the common URL mistakes before the entry is ever used. */
+internal fun LlmProvider.sanitized(): LlmProvider {
+    val rawUrl = baseUrl.trim()
+    var url = when {
+        rawUrl.startsWith("https://", ignoreCase = true) -> "https://${rawUrl.drop(8)}"
+        rawUrl.startsWith("http://", ignoreCase = true) -> "http://${rawUrl.drop(7)}"
+        else -> "https://$rawUrl"
+    }
+    if (!url.endsWith("/")) url += "/"
+    return copy(
+        name = name.trim().ifBlank { hostLabel(url) },
+        baseUrl = url,
+        model = model.trim(),
+        apiKey = apiKey.trim(),
+    )
+}
+
+private fun hostLabel(url: String): String = url
+    .removePrefix("https://")
+    .removePrefix("http://")
+    .substringBefore('/')
+    .removePrefix("www.")
