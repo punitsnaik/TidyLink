@@ -31,7 +31,7 @@ class SaveUrlWorker(
             repository.processAndSaveUrl(url)
             Result.success()
         } catch (e: Exception) {
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            if (shouldRetry(runAttemptCount, MAX_ATTEMPTS)) Result.retry() else Result.failure()
         }
     }
 
@@ -47,7 +47,7 @@ class SaveUrlWorker(
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
-                "save_url_${url.hashCode()}",
+                saveWorkName(url),
                 ExistingWorkPolicy.KEEP,
                 request,
             )

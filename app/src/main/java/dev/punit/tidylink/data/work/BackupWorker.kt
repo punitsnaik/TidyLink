@@ -61,7 +61,7 @@ class BackupWorker(
             // stopped working silently is worse than no backup, because the
             // user believes they have one.
             store.recordFailure()
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            if (shouldRetry(runAttemptCount, MAX_ATTEMPTS)) Result.retry() else Result.failure()
         }
     }
 
