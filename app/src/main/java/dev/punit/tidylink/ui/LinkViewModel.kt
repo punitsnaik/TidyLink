@@ -152,7 +152,7 @@ class LinkViewModel(
             config = PagingConfig(
                 pageSize = 60,
                 prefetchDistance = 90,
-                enablePlaceholders = false,
+                enablePlaceholders = true,
             ),
             pagingSourceFactory = {
                 repository.pagingSource(q.search, q.category, q.sort)
@@ -165,7 +165,7 @@ class LinkViewModel(
         config = PagingConfig(
             pageSize = 60,
             prefetchDistance = 90,
-            enablePlaceholders = false,
+            enablePlaceholders = true,
         ),
         pagingSourceFactory = { repository.pinnedPagingSource() },
     ).flow.cachedIn(viewModelScope)

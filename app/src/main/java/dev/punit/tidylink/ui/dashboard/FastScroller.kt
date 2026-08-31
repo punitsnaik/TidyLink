@@ -148,10 +148,8 @@ internal fun fastScrollFraction(
  * card heights that's an approximation, but it is monotonic and stable,
  * which is all a seek bar needs.
  *
- * ponytail: with enablePlaceholders=false the paged item count only covers
- * loaded pages, so a drag to the bottom lands on the last loaded item and
- * the track keeps growing as more pages stream in. Fine at real library
- * sizes; switch the pager to placeholders if thumb-jumping ever matters.
+ * Paging placeholders keep [itemCount] equal to the query's real total, so
+ * dragging to the bottom does not move the target as more pages load.
  */
 @Composable
 internal fun FastScroller(

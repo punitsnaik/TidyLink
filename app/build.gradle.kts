@@ -52,8 +52,8 @@ android {
         // reads as "not an upgrade", so installs of the old APK are stranded
         // with no path forward. versionName is the cosmetic string users see;
         // keep it in step with the v* git tag that triggers release.yml.
-        versionCode = 10
-        versionName = "1.3.3"
+        versionCode = 11
+        versionName = "1.3.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

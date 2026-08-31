@@ -20,6 +20,10 @@
         <item quantity="one">%d result</item>
         <item quantity="other">%d results</item>
     </plurals>
+    <plurals name="link_count">
+        <item quantity="one">%d link</item>
+        <item quantity="other">%d links</item>
+    </plurals>
     <string name="msg_load_failed">Couldn\'t load links</string>
 
     <!-- Category chips -->
