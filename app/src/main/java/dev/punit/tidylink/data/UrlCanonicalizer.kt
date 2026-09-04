@@ -13,7 +13,7 @@ object UrlCanonicalizer {
     private val TRACKING_PARAMS = setOf(
         "si", "feature", "fbclid", "gclid", "dclid", "msclkid", "twclid",
         "igsh", "igshid", "mc_cid", "mc_eid", "ref_src", "ref_url",
-        "mibextid", "share_id", "sfnsn",
+        "mibextid", "share_id", "sfnsn", "rdt", "sh", "context",
     )
 
     private val URL_REGEX = Regex("""https?://[^\s"'<>\])]+""")

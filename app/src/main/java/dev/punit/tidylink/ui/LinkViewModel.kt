@@ -36,6 +36,7 @@ import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
 import dev.punit.tidylink.data.work.BackupWorker
+import dev.punit.tidylink.sync.SyncClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -123,7 +124,14 @@ class LinkViewModel(
     private val appContext: Context,
     private val aiService: AiCategorizationService,
     private val updateChecker: UpdateChecker,
+    private val syncClient: SyncClient,
 ) : ViewModel() {
+
+    /** Decode a scanned pairing QR and sync once. See [PairDeviceScreen]. */
+    suspend fun pairFromQr(qrText: String) = syncClient.pairFromQr(qrText)
+
+    /** Re-sync with every already-paired device, found again over NSD. */
+    suspend fun syncAllPeers() = syncClient.syncAll(appContext, viewModelScope)
 
     private val searchQuery = MutableStateFlow("")
     private val selectedCategory = MutableStateFlow<String?>(null)
@@ -810,6 +818,7 @@ class LinkViewModel(
                     appContext = app.applicationContext,
                     aiService = app.container.aiService,
                     updateChecker = app.container.updateChecker,
+                    syncClient = app.container.syncClient,
                 )
             }
         }

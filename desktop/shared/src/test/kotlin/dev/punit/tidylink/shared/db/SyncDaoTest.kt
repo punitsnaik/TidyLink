@@ -42,6 +42,15 @@ class SyncDaoTest {
     }
 
     @Test
+    fun purgeTrashBefore_removes_old_rows_and_keeps_recent_ones() = runTest {
+        dao.insertTrash(TrashedLink("old", "{}", deletedAt = 10))
+        dao.insertTrash(TrashedLink("recent", "{}", deletedAt = 200))
+        dao.purgeTrashBefore(100)
+        assertNull(dao.getTrash("old"))
+        assertEquals(200L, dao.getTrash("recent")?.deletedAt)
+    }
+
+    @Test
     fun watermark_defaults_to_zero_and_set_overwrites() = runTest {
         assertEquals(0L, dao.getWatermark("phone"))
         dao.setWatermark(SyncState(peerId = "phone", lastSyncAt = 123))
