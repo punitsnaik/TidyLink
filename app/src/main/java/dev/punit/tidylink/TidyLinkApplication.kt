@@ -12,6 +12,8 @@ import dev.punit.tidylink.data.settings.ThemeStore
 import dev.punit.tidylink.data.settings.UiPreferencesStore
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
+import dev.punit.tidylink.sync.DeviceIdentity
+import dev.punit.tidylink.sync.SyncClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +42,11 @@ class AppContainer(application: Application) {
 
     /** Shared so the provider sheet can test a key before saving it. */
     val aiService by lazy { AiCategorizationService(llmProviderStore) }
+
+    /** This device's stable sync identity (schema v9). See `sync/DeviceIdentity.kt`. */
+    private val deviceIdentity by lazy { DeviceIdentity.loadOrCreate(app.applicationContext) }
+
+    val syncClient by lazy { SyncClient(database, deviceIdentity) }
 
     val linkRepository by lazy {
         LinkRepository(

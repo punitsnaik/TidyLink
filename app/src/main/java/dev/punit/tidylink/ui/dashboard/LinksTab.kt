@@ -1,11 +1,15 @@
 package dev.punit.tidylink.ui.dashboard
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,9 +19,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,9 +32,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.onSizeChanged
@@ -46,11 +56,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
+import dev.chrisbanes.haze.HazeState
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
+import dev.punit.tidylink.ui.theme.Motion
+import kotlinx.coroutines.launch
 
 /** Gutter shared by the grid's contentPadding and the empty-state header. */
 private val HEADER_GUTTER = 16.dp
@@ -94,6 +107,7 @@ internal fun LinksTab(
     onShowAiProviders: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onRequestDelete: (LinkEntity) -> Unit,
+    hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
     // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
@@ -196,6 +210,55 @@ internal fun LinksTab(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp, start = 4.dp),
+                    )
+                }
+            }
+        }
+
+        // Floating search icon: appears when the header (grid index 0)
+        // scrolls off-screen so search stays reachable without scrolling
+        // back to the top. Uses derivedStateOf so only a boolean is
+        // recomposed, not a counter on every scroll pixel.
+        val scope = rememberCoroutineScope()
+        val headerScrolledAway by remember {
+            derivedStateOf { gridState.firstVisibleItemIndex > 0 }
+        }
+        val showSearchIcon = headerScrolledAway && !uiState.isSelectionMode
+
+        AnimatedVisibility(
+            visible = showSearchIcon,
+            enter = fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)) +
+                scaleIn(
+                    initialScale = 0.6f,
+                    animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+                ),
+            exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)) +
+                scaleOut(
+                    targetScale = 0.6f,
+                    animationSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing),
+                ),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 8.dp, end = 16.dp),
+        ) {
+            GlassSurface(
+                hazeState = hazeState,
+                shape = CircleShape,
+                elevation = 6.dp,
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable(role = Role.Button) {
+                            scope.launch { gridState.animateScrollToItem(0) }
+                        },
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = stringResource(R.string.action_search),
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
