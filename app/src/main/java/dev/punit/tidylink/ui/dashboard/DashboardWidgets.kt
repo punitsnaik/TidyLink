@@ -20,8 +20,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -91,7 +91,7 @@ internal fun SearchBar(
     modifier: Modifier = Modifier,
 ) {
     val focusManager = LocalFocusManager.current
-    TextField(
+    OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = modifier,
@@ -111,9 +111,9 @@ internal fun SearchBar(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
         shape = RoundedCornerShape(28.dp),
-        colors = TextFieldDefaults.colors(
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
             focusedContainerColor = Color.Transparent,
             unfocusedContainerColor = Color.Transparent,
         ),

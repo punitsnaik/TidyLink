@@ -84,5 +84,6 @@ internal fun themeLabel(mode: ThemeMode): String = stringResource(
         ThemeMode.SYSTEM -> R.string.theme_system
         ThemeMode.LIGHT -> R.string.theme_light
         ThemeMode.DARK -> R.string.theme_dark
+        ThemeMode.AMOLED -> R.string.theme_amoled
     }
 )

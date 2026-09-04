@@ -124,12 +124,13 @@ Without a provider configured, nothing is ever sent anywhere and links simply st
 
 ## Privacy
 
-TidyLink has no backend and no analytics. Four things leave your device, all in service of features you can see:
+TidyLink has no backend and no analytics. Five things leave your device, all in service of features you can see:
 
-1. **Link metadata → your AI provider.** The URL, page title, and description of a saved link are sent to the LLM endpoint *you* configured, for categorization. No provider configured → nothing is sent.
-2. **Link domains → Google.** Cards without a thumbnail show a favicon fetched from `google.com/s2/favicons`.
-3. **YouTube URLs → YouTube oEmbed** for reliable titles and thumbnails.
-4. **An update check → GitHub.** At most once a week (or when you tap *Check for updates* in Settings), the app asks `api.github.com` for the latest release - an unauthenticated GET that sends nothing about you or your links. Downloading an update fetches the APK from the same GitHub release.
+1. **Saved URLs → their websites.** TidyLink fetches each saved page directly to read its title, description, thumbnail, final redirect destination, and up to eight useful direct links. It never recursively crawls those links.
+2. **Link metadata → your AI provider.** Saved URLs, titles, descriptions, extracted candidate URLs and short contextual excerpts are sent to the LLM endpoint *you* configured for categorization and useful-link filtering. Existing links are also processed in bounded background batches; decisions are cached. No provider configured → no AI requests are sent.
+3. **Link domains → Google.** Cards without a thumbnail show a favicon fetched from `google.com/s2/favicons`.
+4. **YouTube URLs → YouTube oEmbed** for reliable titles and thumbnails.
+5. **An update check → GitHub.** At most once a week (or when you tap *Check for updates* in Settings), the app asks `api.github.com` for the latest release - an unauthenticated GET that sends nothing about you or your links. Downloading an update fetches the APK from the same GitHub release.
 
 API keys are encrypted at rest with a hardware-backed Android Keystore key and are excluded from cloud backups and device transfers.
 
@@ -187,6 +188,8 @@ A few things in here were not obvious and cost real debugging time. They're writ
 - **The save is committed before the share sheet closes.** `ShareReceiverActivity` writes a placeholder row synchronously, then hands enrichment to WorkManager. The naive version - scrape first, then save - loses links whenever Android kills the trampoline activity, which it does often and without warning.
 
 - **Canonicalization is a pure function, and that's the point.** `UrlCanonicalizer` has no Android dependencies, so the dedupe rules that decide whether two URLs are "the same link" are covered by fast JVM unit tests rather than an emulator. Tracking-param stripping is the kind of logic that quietly regresses.
+
+- **Useful links are derived, not library rows.** The metadata fetch also records redirects and ranks direct app/source/download links. They stay inside the source link's page until explicitly saved, so enrichment never floods the main library. The fields are Android-local and preserved when an incoming device-sync payload replaces the portable fields.
 
 - **Search is FTS4, not FTS5.** Android's bundled SQLite doesn't ship FTS5, so the query builder emits bare `MATCH` tokens with `*` prefixes and no FTS5-only syntax. Columns shared between the FTS table and the base table must be table-qualified, or the join silently returns an empty list instead of erroring.
 

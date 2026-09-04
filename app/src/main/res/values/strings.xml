@@ -77,6 +77,25 @@
     <string name="theme_system">System default</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="theme_amoled">AMOLED black</string>
+    <string name="settings_card_refresh_swipe_title">Swipe right to refresh</string>
+    <string name="settings_card_refresh_swipe_subtitle">Refresh an individual card</string>
+    <string name="settings_card_delete_swipe_title">Swipe left to delete</string>
+    <string name="settings_card_delete_swipe_subtitle">Ask before moving an individual card to trash</string>
+    <string name="settings_page_swipes_title">Swipe between link pages</string>
+    <string name="settings_page_swipes_subtitle">Move to the previous or next link with a horizontal swipe</string>
+    <string name="action_adaptive_view">Compact view. Switch to Adaptive view</string>
+    <string name="action_compact_view">Adaptive view. Switch to Compact view</string>
+    <string name="related_link_save_named">Save %1$s</string>
+    <string name="related_links_found">%1$d useful links found</string>
+    <string name="related_links_title">Useful links</string>
+    <string name="related_link_save">Save</string>
+    <string name="msg_link_saved">Link saved</string>
+    <string name="related_link_saving">Saving link</string>
+    <string name="related_link_saved">Already saved</string>
+    <string name="action_close">Close</string>
+    <string name="redirected_to">Redirects to %1$s</string>
+    <string name="nav_tools">Tools</string>
     <string name="settings_section_ai">AI</string>
     <string name="settings_ai_providers_title">AI providers</string>
     <string name="settings_ai_providers_subtitle">API keys used to categorize and summarize links</string>
@@ -155,7 +174,7 @@
     <string name="settings_github_subtitle">github.com/punitsnaik/TidyLink</string>
     <string name="settings_privacy_title">Privacy</string>
     <string name="settings_privacy_summary">What leaves your device, and what doesn\'t</string>
-    <string name="settings_privacy_subtitle">Link titles and descriptions are sent to your configured AI provider for categorization. Favicons are loaded from Google\'s favicon service. Nothing else leaves your device.</string>
+    <string name="settings_privacy_subtitle">Saved URLs, titles, descriptions, candidate links and short page excerpts are sent to your configured AI provider for categorization and automatic useful-link filtering, including background updates to existing links. Without a provider, AI processing is skipped. Pages and thumbnails are loaded from their websites; favicons use Google\'s favicon service.</string>
 
     <!-- Tidy categories confirmation -->
     <string name="tidy_confirm_title">Tidy up categories?</string>

@@ -31,6 +31,8 @@ import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ProviderHealth
 import dev.punit.tidylink.data.settings.ThemeMode
 import dev.punit.tidylink.data.settings.ThemeStore
+import dev.punit.tidylink.data.settings.UiPreferencesStore
+import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
 import dev.punit.tidylink.data.work.BackupWorker
@@ -115,8 +117,9 @@ class LinkViewModel(
     private val providerStore: LlmProviderStore,
     private val onboardingStore: OnboardingStore,
     private val themeStore: ThemeStore,
+    private val uiPreferencesStore: UiPreferencesStore,
     private val backupStore: BackupStore,
-    /** Only for scheduling WorkManager jobs - no UI or activity context here. */
+    /** Application context only: WorkManager and document import streams. */
     private val appContext: Context,
     private val aiService: AiCategorizationService,
     private val updateChecker: UpdateChecker,
@@ -226,9 +229,10 @@ class LinkViewModel(
         sortOrder.value = order
     }
 
-    fun processAndSaveUrl(url: String) {
+    fun processAndSaveUrl(url: String, onComplete: (Boolean) -> Unit = {}) {
         if (!UrlCanonicalizer.isValidHttpUrl(url)) {
             message.value = UiMessage.Text(R.string.add_url_invalid)
+            onComplete(false)
             return
         }
         viewModelScope.launch {
@@ -236,11 +240,15 @@ class LinkViewModel(
             message.value = null
             try {
                 val result = repository.processAndSaveUrl(url)
-                if (result.alreadyExisted) {
-                    message.value = UiMessage.Text(R.string.msg_already_saved)
-                }
+                message.value = UiMessage.Text(
+                    if (result.alreadyExisted) R.string.msg_already_saved else R.string.msg_link_saved
+                )
+                onComplete(true)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 message.value = UiMessage.Text(R.string.msg_save_failed)
+                onComplete(false)
             } finally {
                 isProcessing.value = false
             }
@@ -564,6 +572,7 @@ class LinkViewModel(
         providerStore.add(
             LlmProvider(name = name, baseUrl = baseUrl, model = model, apiKey = apiKey)
         )
+        repository.scheduleRelationBackfill()
     }
 
     fun removeLlmProvider(id: String) {
@@ -698,6 +707,18 @@ class LinkViewModel(
         themeStore.setThemeMode(mode)
     }
 
+    val libraryViewMode: StateFlow<LibraryViewMode> = uiPreferencesStore.libraryViewMode
+    val cardRefreshSwipe: StateFlow<Boolean> = uiPreferencesStore.cardRefreshSwipe
+    val cardDeleteSwipe: StateFlow<Boolean> = uiPreferencesStore.cardDeleteSwipe
+    val pageSwipeNavigation: StateFlow<Boolean> = uiPreferencesStore.pageSwipeNavigation
+
+    fun setLibraryViewMode(mode: LibraryViewMode) = uiPreferencesStore.setLibraryViewMode(mode)
+    fun setCardRefreshSwipe(enabled: Boolean) = uiPreferencesStore.setCardRefreshSwipe(enabled)
+    fun setCardDeleteSwipe(enabled: Boolean) = uiPreferencesStore.setCardDeleteSwipe(enabled)
+    fun setPageSwipeNavigation(enabled: Boolean) = uiPreferencesStore.setPageSwipeNavigation(enabled)
+
+    suspend fun findSavedLink(url: String): LinkEntity? = repository.findSavedLink(url)
+
     // --- Trash ------------------------------------------------------------
 
     /**
@@ -784,6 +805,7 @@ class LinkViewModel(
                     providerStore = app.container.llmProviderStore,
                     onboardingStore = app.container.onboardingStore,
                     themeStore = app.container.themeStore,
+                    uiPreferencesStore = app.container.uiPreferencesStore,
                     backupStore = app.container.backupStore,
                     appContext = app.applicationContext,
                     aiService = app.container.aiService,

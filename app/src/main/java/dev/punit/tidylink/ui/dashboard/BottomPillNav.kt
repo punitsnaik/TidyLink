@@ -35,7 +35,7 @@ import dev.punit.tidylink.R
 import dev.punit.tidylink.ui.theme.Motion
 
 /** Destinations reachable from the floating pill navigation bar. */
-internal enum class DashboardTab { Links, Pinned, Settings }
+internal enum class DashboardTab { Links, Pinned, Tools, Settings }
 
 /**
  * Floating pill navigation: frosted glass over the scrolling content behind
@@ -107,6 +107,7 @@ private fun PillTab(
         when (tab) {
             DashboardTab.Links -> R.string.nav_links
             DashboardTab.Pinned -> R.string.nav_pinned
+            DashboardTab.Tools -> R.string.nav_tools
             DashboardTab.Settings -> R.string.nav_settings
         }
     )
@@ -114,6 +115,7 @@ private fun PillTab(
     val icon = when (tab) {
         DashboardTab.Links -> Icons.Default.Home
         DashboardTab.Pinned -> Icons.Default.Star
+        DashboardTab.Tools -> TuneIcon
         DashboardTab.Settings -> Icons.Default.Settings
     }
     val containerColor by animateColorAsState(
@@ -149,14 +151,14 @@ private fun PillTab(
                 .animateContentSize()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
+            Icon(icon, contentDescription = if (selected) null else label, modifier = Modifier.size(20.dp))
             if (selected) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            )
         }
     }
 }

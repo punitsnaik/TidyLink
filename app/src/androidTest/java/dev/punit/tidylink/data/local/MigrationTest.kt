@@ -429,6 +429,55 @@ class MigrationTest {
         )
     }
 
+    /**
+     * v9 adds `modifiedAt` plus the empty `peers`/`sync_state` tables.
+     * `modifiedAt` is backfilled from `timestamp` - see MIGRATION_8_9's
+     * comment for why "now" would be wrong here.
+     */
+    @Test
+    fun migrate_8_to_9_adds_modifiedAt_backfilled_from_timestamp() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 8, true, *ALL_MIGRATIONS).close()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 9, true, *ALL_MIGRATIONS)
+
+        assertTrue("modifiedAt must exist at v9", "modifiedAt" in db.columnsOf("links"))
+        db.query("SELECT modifiedAt FROM links WHERE id = 'kot'").use { c ->
+            assertTrue(c.moveToNext())
+            assertEquals("backfill must copy timestamp, not stamp 'now'", 100L, c.getLong(0))
+        }
+    }
+
+    @Test
+    fun migrate_8_to_9_creates_empty_peers_and_sync_state_tables() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 8, true, *ALL_MIGRATIONS).close()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 9, true, *ALL_MIGRATIONS)
+
+        assertEquals(listOf("addedAt", "deviceId", "name", "publicKey"), db.columnsOf("peers").sorted())
+        assertEquals(listOf("lastSyncAt", "peerId"), db.columnsOf("sync_state").sorted())
+        db.query("SELECT COUNT(*) FROM peers").use { c -> assertTrue(c.moveToNext()); assertEquals(0, c.getInt(0)) }
+    }
+
+    @Test
+    fun migrate_9_to_10_adds_empty_android_relation_fields() {
+        createV4Database()
+        helper.runMigrationsAndValidate(TEST_DB, 9, true, *ALL_MIGRATIONS).close()
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 10, true, *ALL_MIGRATIONS)
+
+        assertTrue("resolvedUrl must exist at v10", "resolvedUrl" in db.columnsOf("links"))
+        db.query(
+            "SELECT resolvedUrl, relatedLinksJson, relatedLinksScannedAt FROM links WHERE id = 'kot'"
+        ).use { c ->
+            assertTrue(c.moveToNext())
+            assertEquals("", c.getString(0))
+            assertEquals("[]", c.getString(1))
+            assertEquals(0L, c.getLong(2))
+        }
+    }
+
     /** v8 rebuilds `links`, so prove it does not disturb the trash beside it. */
     @Test
     fun migrate_7_to_8_leaves_the_trash_table_alone() {

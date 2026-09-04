@@ -9,12 +9,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -40,6 +42,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -49,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,34 +71,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
+import dev.punit.tidylink.data.scraper.availableRelatedLinks
+import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
+import java.text.DateFormat
+import java.util.Date
 
 private const val TITLE_MAX_LINES = 2
 
-/**
- * Lines the summary may use.
- *
- * This used to be derived per card from the thumbnail's MEASURED height, via
- * an `onSizeChanged` that wrote state during layout - which scheduled a
- * second composition of every card, whose new line count could change the
- * row's height again. A guaranteed extra pass per card, on the hottest path
- * in the app, damped only by a clamp.
- *
- * It was also reading back a number the text had just produced. The
- * thumbnail is a fixed width with `fillMaxHeight()`, so it has no natural
- * height of its own - under `IntrinsicSize.Min` its height IS the text
- * column's height, floored at the 104.dp minimum. The "fill the space beside
- * a tall thumbnail" case the derivation existed for cannot arise.
- *
- * Three lines is what that math returned for a typical card anyway, and the
- * thumbnail still stretches to whatever height the text lands on, so the
- * card fills exactly as before.
- */
+// Keep summaries concise even when portrait media makes a card taller.
 private const val SUMMARY_MAX_LINES = 3
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -106,6 +97,9 @@ internal fun LinkCard(
     animateEntrance: Boolean,
     showActions: Boolean,
     isRefreshing: Boolean,
+    viewMode: LibraryViewMode,
+    cardRefreshSwipe: Boolean,
+    cardDeleteSwipe: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onRefresh: () -> Unit,
@@ -185,8 +179,8 @@ internal fun LinkCard(
 
     SwipeToDismissBox(
         state = dismissState,
-        enableDismissFromStartToEnd = showActions,
-        enableDismissFromEndToStart = showActions,
+        enableDismissFromStartToEnd = showActions && cardRefreshSwipe,
+        enableDismissFromEndToStart = showActions && cardDeleteSwipe,
         modifier = modifier.fillMaxWidth(),
         backgroundContent = {
             // Nothing to draw unless a swipe is in progress (the card is
@@ -253,10 +247,8 @@ internal fun LinkCard(
             // grid-only concerns, so they're drawn here via the overlay
             // slot rather than living inside the shared body - trash has
             // none of the three.
-            LinkCardBody(
-                link = link,
-                thumbnailOverlay = {
-                    androidx.compose.animation.AnimatedVisibility(
+            val overlay: @Composable BoxScope.() -> Unit = {
+                androidx.compose.animation.AnimatedVisibility(
                         visible = selected,
                         enter = fadeIn(),
                         exit = fadeOut(),
@@ -297,10 +289,150 @@ internal fun LinkCard(
                                 .padding(3.dp)
                                 .size(14.dp),
                         )
-                    }
-                },
-                onImageFailed = onImageFailed,
+                }
+            }
+            if (viewMode == LibraryViewMode.ADAPTIVE) {
+                AdaptiveLinkCardBody(link, onImageFailed = onImageFailed, thumbnailOverlay = overlay)
+            } else {
+                LinkCardBody(link, onImageFailed = onImageFailed, thumbnailOverlay = overlay)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AdaptiveLinkCardBody(
+    link: LinkEntity,
+    onImageFailed: () -> Unit,
+    thumbnailOverlay: @Composable BoxScope.() -> Unit,
+) {
+    // Lazy-grid saveable state preserves the decision when this card re-enters view.
+    var imageRatio by rememberSaveable(link.imageUrl) { mutableStateOf(1f) }
+    var landscapeUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var failedUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    val hasImage = !link.imageUrl.isNullOrBlank() && failedUrl != link.imageUrl
+    val context = LocalContext.current
+    val imageRequest = remember(context, link.imageUrl, link.url, hasImage) {
+        ImageRequest.Builder(context)
+            .data(if (hasImage) link.imageUrl else faviconUrl(link.url))
+            .size(1024, 1024)
+            .crossfade(true)
+            .build()
+    }
+
+    // One painter stays alive across both layouts: no second request on promotion.
+    val painter = rememberAsyncImagePainter(
+        model = imageRequest,
+        contentScale = ContentScale.Fit,
+        onSuccess = { success ->
+            imageRatio = thumbnailAspectRatio(success.result.image.width, success.result.image.height)
+            if (hasImage) landscapeUrl = link.imageUrl.takeIf {
+                isLandscapeThumbnail(success.result.image.width, success.result.image.height)
+            }
+        },
+        onError = {
+            if (hasImage) {
+                landscapeUrl = null
+                failedUrl = link.imageUrl
+                onImageFailed()
+            }
+        },
+    )
+    val image: @Composable (Modifier) -> Unit = { modifier ->
+        Image(
+            painter = painter,
+            contentDescription = link.title,
+            contentScale = if (hasImage) ContentScale.FillWidth else ContentScale.Fit,
+            modifier = modifier.then(if (hasImage) Modifier else Modifier.padding(32.dp)),
+        )
+    }
+    if (hasImage && landscapeUrl == link.imageUrl) {
+        VisualLinkCardBody(link, imageRatio, image, thumbnailOverlay)
+    } else {
+        LinkCardBody(link, thumbnailOverlay = thumbnailOverlay, adaptiveImage = image, adaptiveImageRatio = imageRatio)
+    }
+}
+
+internal fun isLandscapeThumbnail(width: Int, height: Int): Boolean = width > height && height > 0
+
+internal fun thumbnailAspectRatio(width: Int, height: Int): Float =
+    if (width > 0 && height > 0) width.toFloat() / height else 1f
+
+@Composable
+private fun VisualLinkCardBody(
+    link: LinkEntity,
+    imageRatio: Float,
+    image: @Composable (Modifier) -> Unit,
+    thumbnailOverlay: @Composable BoxScope.() -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(imageRatio)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            image(Modifier.fillMaxSize())
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp),
+            ) {
+                Text(
+                    domainOf(link.url),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+            thumbnailOverlay()
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CategoryBadge(link.category)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.saved_on, DateFormat.getDateInstance().format(Date(link.timestamp))),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                displayTitle(link.title, link.url),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (link.aiSummary.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    link.aiSummary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            val relationCount = remember(link.relatedLinksJson, link.description, link.url, link.resolvedUrl) {
+                availableRelatedLinks(link.relatedLinksJson, link.description, link.url, link.resolvedUrl).size
+            }
+            if (relationCount > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.related_links_found, relationCount),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -322,10 +454,10 @@ internal fun LinkCardBody(
     // Defaults to nothing so trash cards stay inert: re-scraping a link the
     // user has deleted would be work nobody asked for.
     onImageFailed: () -> Unit = {},
+    adaptiveImage: (@Composable (Modifier) -> Unit)? = null,
+    adaptiveImageRatio: Float = 1f,
 ) {
-    // IntrinsicSize.Min lets the thumbnail stretch to exactly the row's
-    // content height (edge to edge minus a small aesthetic gap) instead of
-    // floating as a small square in empty space.
+    // The row fits both its text and the thumbnail at its natural aspect ratio.
     //
     // No animateContentSize here, deliberately. Room invalidates this
     // screen's PagingSource on every write, and the background enrichment
@@ -342,6 +474,7 @@ internal fun LinkCardBody(
         // fresh instead of the card staying pinned to the favicon
         // fallback forever.
         var imageLoadFailed by remember(link.imageUrl) { mutableStateOf(false) }
+        var imageRatio by remember(link.imageUrl) { mutableStateOf(1f) }
         val hasImage = !link.imageUrl.isNullOrBlank() && !imageLoadFailed
 
         // Remembered, not rebuilt every recomposition: a new ImageRequest per
@@ -357,12 +490,20 @@ internal fun LinkCardBody(
         Box(
             modifier = Modifier
                 .padding(5.dp)
+                .width(116.dp)
+                .defaultMinSize(minHeight = if (hasImage) {
+                    maxOf(104f, 116f / if (adaptiveImage != null) adaptiveImageRatio else imageRatio).dp
+                } else 104.dp)
                 .fillMaxHeight(),
         ) {
-            AsyncImage(
+            if (adaptiveImage != null) {
+                adaptiveImage(Modifier.matchParentSize().clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant))
+            } else AsyncImage(
                 model = imageRequest,
                 contentDescription = link.title,
-                contentScale = if (hasImage) ContentScale.Crop else ContentScale.Fit,
+                contentScale = if (hasImage) ContentScale.FillWidth else ContentScale.Fit,
+                onSuccess = { imageRatio = thumbnailAspectRatio(it.result.image.width, it.result.image.height) },
                 // A stored URL that won't load is the one broken-thumbnail
                 // case the background sweep can't detect (a dead URL is
                 // still a non-null URL), so the failure is reported up for
@@ -374,9 +515,8 @@ internal fun LinkCardBody(
                     }
                 },
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .defaultMinSize(minHeight = 104.dp)
-                    .width(116.dp)
+                    // The image box supplies the decoded aspect ratio to row measurement.
+                    .matchParentSize()
                     .clip(RoundedCornerShape(16.dp))
                     .background(
                         if (hasImage) {
@@ -418,6 +558,17 @@ internal fun LinkCardBody(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            val relationCount = remember(link.relatedLinksJson, link.description, link.url, link.resolvedUrl) {
+                availableRelatedLinks(link.relatedLinksJson, link.description, link.url, link.resolvedUrl).size
+            }
+            if (relationCount > 0) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.related_links_found, relationCount),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -427,10 +578,10 @@ internal fun CategoryBadge(category: String, modifier: Modifier = Modifier) {
     Text(
         text = category,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onPrimaryContainer,
+        color = MaterialTheme.colorScheme.onSecondaryContainer,
         modifier = modifier
             .background(
-                color = MaterialTheme.colorScheme.primaryContainer,
+                color = MaterialTheme.colorScheme.secondaryContainer,
                 shape = RoundedCornerShape(8.dp),
             )
             .padding(horizontal = 8.dp, vertical = 3.dp),
