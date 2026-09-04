@@ -58,7 +58,13 @@ import java.util.Date
 @Composable
 internal fun SettingsTab(
     themeMode: ThemeMode,
+    cardRefreshSwipe: Boolean,
+    cardDeleteSwipe: Boolean,
+    pageSwipeNavigation: Boolean,
     onThemeClick: () -> Unit,
+    onCardRefreshSwipeChange: (Boolean) -> Unit,
+    onCardDeleteSwipeChange: (Boolean) -> Unit,
+    onPageSwipeNavigationChange: (Boolean) -> Unit,
     onAiProviders: () -> Unit,
     onExport: () -> Unit,
     onImportJson: () -> Unit,
@@ -94,6 +100,39 @@ internal fun SettingsTab(
                 title = stringResource(R.string.settings_theme_title),
                 subtitle = themeLabel(themeMode),
                 onClick = onThemeClick,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_card_refresh_swipe_title),
+                subtitle = stringResource(R.string.settings_card_refresh_swipe_subtitle),
+                onClick = { onCardRefreshSwipeChange(!cardRefreshSwipe) },
+                trailing = {
+                    Switch(
+                        checked = cardRefreshSwipe,
+                        onCheckedChange = onCardRefreshSwipeChange,
+                    )
+                },
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_card_delete_swipe_title),
+                subtitle = stringResource(R.string.settings_card_delete_swipe_subtitle),
+                onClick = { onCardDeleteSwipeChange(!cardDeleteSwipe) },
+                trailing = {
+                    Switch(checked = cardDeleteSwipe, onCheckedChange = onCardDeleteSwipeChange)
+                },
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_page_swipes_title),
+                subtitle = stringResource(R.string.settings_page_swipes_subtitle),
+                onClick = { onPageSwipeNavigationChange(!pageSwipeNavigation) },
+                trailing = {
+                    Switch(
+                        checked = pageSwipeNavigation,
+                        onCheckedChange = onPageSwipeNavigationChange,
+                    )
+                },
             )
         }
 

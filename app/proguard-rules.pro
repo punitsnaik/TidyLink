@@ -19,6 +19,13 @@
 -dontwarn okio.**
 -dontwarn javax.annotation.**
 
+# --- Bouncy Castle (X25519 for device sync, see sync/PairingCrypto.kt) -----
+# bcprov bundles JDK-Provider integration classes referencing APIs Android
+# doesn't have; TidyLink only ever uses the lightweight crypto.params/
+# crypto.agreement API directly, never java.security's Provider registration,
+# so those classes are unreachable at runtime - safe to silence, not keep.
+-dontwarn org.bouncycastle.**
+
 # --- kotlinx-serialization -------------------------------------------------
 # The reified Json.decodeFromString<T>() / encodeToString<T>() used across the
 # app resolve serializers REFLECTIVELY at runtime via serializer(typeOf<T>()).

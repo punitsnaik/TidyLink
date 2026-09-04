@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -24,19 +25,25 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -46,11 +53,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -85,6 +96,8 @@ import coil3.request.crossfade
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.ui.theme.Motion
+import kotlinx.serialization.decodeFromString
+import dev.punit.tidylink.data.scraper.availableRelatedLinks
 import java.text.DateFormat
 import java.util.Date
 
@@ -95,8 +108,7 @@ import java.util.Date
  */
 private val SWIPE_THRESHOLD = 80.dp
 
-/** Full-detail bottom sheet shown when a card is tapped. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Full-screen link page shown when a card is tapped. */
 @Composable
 internal fun LinkDetailSheet(
     link: LinkEntity,
@@ -110,10 +122,16 @@ internal fun LinkDetailSheet(
     onDelete: () -> Unit,
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
+    pageSwipeNavigation: Boolean,
+    onOpenRelated: (String) -> Unit,
+    onSaveRelated: (String) -> Unit,
     // Takes the link whose image failed rather than closing over [link]:
     // mid-swipe the sheet is rendering a neighbour, and recovering the
     // wrong row would be a silent no-op that looks like a working fix.
     onImageFailed: (LinkEntity) -> Unit,
+    savedRelatedUrls: Set<String> = emptySet(),
+    savingRelatedUrls: Set<String> = emptySet(),
+    feedback: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     val source = linkSourceOf(link.url)
@@ -133,15 +151,28 @@ internal fun LinkDetailSheet(
     val currentHasNext by rememberUpdatedState(hasNext)
     val previousLabel = stringResource(R.string.cd_previous_link)
     val nextLabel = stringResource(R.string.cd_next_link)
+    BackHandler(onBack = onDismiss)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        // Open fully expanded: with the default half-expanded state the
-        // pinned action bar is laid out below the fold, off-screen.
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = glassSheetColor(),
+    Surface(
+        color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.fillMaxSize(),
     ) {
+      Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+        feedback()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        ) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+            }
+            Text(
+                stringResource(R.string.app_name),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
         // Details scroll; the action bar below stays pinned so the CTA is
         // always reachable without scrolling.
         //
@@ -165,8 +196,8 @@ internal fun LinkDetailSheet(
             },
             label = "detailSwipe",
             modifier = Modifier
-                .weight(1f, fill = false)
-                .pointerInput(Unit) {
+                .weight(1f)
+                .then(if (pageSwipeNavigation) Modifier.pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragStart = { dragTotal = 0f },
                         onDragEnd = {
@@ -189,7 +220,7 @@ internal fun LinkDetailSheet(
                         change.consume()
                         dragTotal += dragAmount
                     }
-                },
+                } else Modifier),
         ) { shown ->
             // Load failure is tracked keyed on the image URL itself
             // (remember(shown.imageUrl), not a plain boolean) so a
@@ -217,14 +248,7 @@ internal fun LinkDetailSheet(
                             .crossfade(true)
                             .build(),
                         contentDescription = shown.title,
-                        // FillWidth + no aspectRatio: the image keeps its own
-                        // proportions and the box takes whatever height that
-                        // implies. Crop inside a fixed 16:9 box cut the top and
-                        // bottom off anything that wasn't 16:9 - which is most
-                        // OG images (1.91:1) and every portrait screenshot.
-                        // Deliberately uncapped: a long infographic renders in
-                        // full and the user scrolls past it.
-                        contentScale = ContentScale.FillWidth,
+                        contentScale = ContentScale.Fit,
                         // Same one-shot recovery as the grid card: a URL
                         // that won't load is invisible to the sweep, whose
                         // retry predicate is `imageUrl IS NULL`.
@@ -234,6 +258,7 @@ internal fun LinkDetailSheet(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
+                            .height(280.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
@@ -358,7 +383,89 @@ internal fun LinkDetailSheet(
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Spacer(Modifier.height(8.dp))
+                if (shown.resolvedUrl.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(R.string.redirected_to, domainOf(shown.resolvedUrl)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                val related = remember(shown.relatedLinksJson, shown.description, shown.url, shown.resolvedUrl) {
+                    availableRelatedLinks(shown.relatedLinksJson, shown.description, shown.url, shown.resolvedUrl)
+                }
+                if (related.isNotEmpty()) {
+                    Spacer(Modifier.height(20.dp))
+                    Text(
+                        stringResource(R.string.related_links_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    related.forEach { item ->
+                        Surface(
+                            onClick = { onOpenRelated(item.url) },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(end = 12.dp).size(40.dp)
+                                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(10.dp)),
+                                ) {
+                                    Text(item.role.take(1).uppercase(), style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                }
+                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                    Text(
+                                        item.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${item.role} · ${domainOf(item.url)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                val saved = item.url in savedRelatedUrls
+                                val saving = item.url in savingRelatedUrls
+                                IconButton(
+                                    onClick = { onSaveRelated(item.url) },
+                                    enabled = !saved && !saving,
+                                    modifier = Modifier.size(48.dp),
+                                ) {
+                                    if (saving) {
+                                        val savingLabel = stringResource(R.string.related_link_saving)
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp).semantics { contentDescription = savingLabel },
+                                            strokeWidth = 2.dp,
+                                        )
+                                    } else {
+                                        Icon(
+                                            if (saved) Icons.Default.Check else RelatedBookmarkIcon,
+                                            stringResource(if (saved) R.string.related_link_saved else R.string.related_link_save_named, item.title),
+                                        )
+                                    }
+                                }
+                                Icon(Icons.Default.KeyboardArrowRight, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
             }
         }
 
@@ -451,8 +558,18 @@ internal fun LinkDetailSheet(
                 }
             }
         }
+      }
     }
 }
+
+private val RelatedBookmarkIcon = ImageVector.Builder("SaveLink", 24.dp, 24.dp, 24f, 24f).apply {
+    path(fill = SolidColor(Color.Black)) {
+        moveTo(6f, 3f); horizontalLineTo(18f); verticalLineTo(22f); lineTo(12f, 18f)
+        lineTo(6f, 22f); close()
+        moveTo(8f, 5f); verticalLineTo(18f); lineTo(12f, 15.5f); lineTo(16f, 18f)
+        verticalLineTo(5f); close()
+    }
+}.build()
 
 /**
  * Material "content copy" glyph, hand-built because material-icons-core

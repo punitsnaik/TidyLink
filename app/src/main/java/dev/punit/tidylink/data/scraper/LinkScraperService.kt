@@ -15,6 +15,9 @@ data class ScrapedData(
     val title: String,
     val description: String,
     val imageUrl: String?,
+    val resolvedUrl: String = "",
+    val relatedLinks: List<RelatedLink> = emptyList(),
+    val fetched: Boolean = false,
 ) {
     /** True when we got real metadata, not just a bare title / login wall. */
     val isRich: Boolean
@@ -138,6 +141,9 @@ class LinkScraperService {
             title = title.trim(),
             description = description.trim(),
             imageUrl = imageUrl,
+            resolvedUrl = document.location().takeUnless { it == url }.orEmpty(),
+            relatedLinks = extractRelatedLinks(document, url),
+            fetched = true,
         )
     } catch (e: Exception) {
         // Network error, non-HTML content, HTTP 4xx/5xx, malformed markup, etc.

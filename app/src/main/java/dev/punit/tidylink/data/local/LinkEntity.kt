@@ -42,4 +42,18 @@ data class LinkEntity(
      * it is indexed for search too.
      */
     @ColumnInfo(defaultValue = "") val note: String = "",
+    /**
+     * Last-write-wins clock for device sync (schema v9). Every write that
+     * changes a synced field MUST set this to the current time - sync reads
+     * it via `changedSince`, so a write that forgets it is invisible to
+     * every other device. Not bumped by purely local/derived writes
+     * (dedupeKey backfill) - those aren't user edits.
+     */
+    @ColumnInfo(defaultValue = "0") val modifiedAt: Long = System.currentTimeMillis(),
+    /** Final HTTP(S) destination after redirects; Android-local derived data. */
+    @ColumnInfo(defaultValue = "") val resolvedUrl: String = "",
+    /** Versioned relation decision cache (legacy backups contain arrays); Android-local derived data. */
+    @ColumnInfo(defaultValue = "[]") val relatedLinksJson: String = "[]",
+    /** Zero until direct-link discovery has completed at least once. */
+    @ColumnInfo(defaultValue = "0") val relatedLinksScannedAt: Long = 0L,
 )
