@@ -96,6 +96,5 @@ class ShareReceiverActivity : Activity() {
      * and is unit-tested; keeping a second copy here only kept the bug.
      */
     private fun extractUrl(text: String): String? =
-        UrlCanonicalizer.extractUrls(text).firstOrNull()
-            ?: text.trim().takeIf { it.contains('.') && !it.contains(' ') }
+        UrlCanonicalizer.extractSharedUrl(text)
 }

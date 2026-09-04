@@ -1,5 +1,7 @@
 package dev.punit.tidylink.ui.dashboard
 
+import androidx.paging.ItemSnapshotList
+
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,7 +63,6 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
-import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
 import dev.punit.tidylink.ui.theme.Motion
@@ -94,6 +95,12 @@ private data class PendingConfirm(
     val destructive: Boolean = false,
     val confirm: () -> Unit,
 )
+
+/** Paging indices include leading placeholders, unlike the loaded item slice. */
+internal fun detailLinkIndex(snapshot: ItemSnapshotList<LinkEntity>, id: String): Int {
+    val loadedIndex = snapshot.items.indexOfFirst { it.id == id }
+    return if (loadedIndex < 0) -1 else snapshot.placeholdersBefore + loadedIndex
+}
 
 /** The delete flavours of [PendingConfirm] - by far the most common. */
 private fun deleteConfirm(
@@ -284,7 +291,10 @@ fun DashboardScreen(
         scope.launch {
             val text = try {
                 withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    val output = requireNotNull(context.contentResolver.openOutputStream(uri)) {
+                        "Could not open export for writing"
+                    }
+                    output.use { stream ->
                         viewModel.exportLinks(stream)
                     }
                 }
@@ -301,23 +311,7 @@ fun DashboardScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            val text = try {
-                val count = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        viewModel.importLinks(stream)
-                    } ?: -1
-                }
-                if (count >= 0) {
-                    resources.getQuantityString(R.plurals.msg_imported_json, count, count)
-                } else {
-                    resources.getString(R.string.msg_import_invalid)
-                }
-            } catch (e: Exception) {
-                resources.getString(R.string.msg_import_failed)
-            }
-            snackbarHostState.showSnackbar(text)
-        }
+        viewModel.importLinks(uri)
     }
 
     // Bookmark import: the folder choice is made in a dialog BEFORE the
@@ -327,36 +321,7 @@ fun DashboardScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            val text = try {
-                val summary = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        viewModel.importBookmarks(stream, importFoldersAsCategories)
-                    }
-                }
-                when {
-                    summary == null -> resources.getString(R.string.msg_import_invalid)
-                    summary.imported == 0 -> resources.getString(
-                        R.string.msg_imported_bookmarks_none
-                    )
-                    summary.skipped > 0 -> resources.getString(
-                        R.string.msg_imported_bookmarks_with_skips,
-                        summary.imported,
-                        summary.skipped,
-                    )
-                    else -> resources.getQuantityString(
-                        R.plurals.msg_imported_bookmarks,
-                        summary.imported,
-                        summary.imported,
-                    )
-                }
-            } catch (e: ImportTooLargeException) {
-                resources.getString(R.string.msg_import_too_large)
-            } catch (e: Exception) {
-                resources.getString(R.string.msg_import_failed)
-            }
-            snackbarHostState.showSnackbar(text)
-        }
+        viewModel.importBookmarks(uri, importFoldersAsCategories)
     }
 
     // Backup folder: a TREE uri, not the CreateDocument uri the manual
@@ -827,7 +792,7 @@ fun DashboardScreen(
         // Swipe navigates the list the user actually tapped from, so it
         // follows the active search, category filter and sort.
         val activeList = if (currentTab == DashboardTab.Pinned) lazyPinned else lazyLinks
-        val currentIndex = activeList.itemSnapshotList.items.indexOfFirst { it.id == id }
+        val currentIndex = detailLinkIndex(activeList.itemSnapshotList, id)
         // Touching the current index lets Paging prefetch around it
         // (prefetchDistance = 90), so a long swipe streak keeps finding
         // neighbours instead of stopping dead at the loaded edge.
