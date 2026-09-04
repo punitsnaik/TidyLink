@@ -29,6 +29,10 @@ object UrlCanonicalizer {
         .distinct()
         .toList()
 
+    /** First shared URL, including a valid bare domain and nothing else. */
+    fun extractSharedUrl(text: String): String? = extractUrls(text).firstOrNull()
+        ?: text.trim().takeIf(::isValidHttpUrl)
+
     private fun trimExtractedUrl(raw: String): String {
         val url = raw.trimEnd('.', ',', ';', ')', ']', '>', '"', '\'')
         return if (isValidHttpUrl(url)) url else url.trimEnd('!')

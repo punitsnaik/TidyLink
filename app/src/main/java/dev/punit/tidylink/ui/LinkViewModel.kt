@@ -1,6 +1,7 @@
 package dev.punit.tidylink.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.PluralsRes
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
@@ -19,7 +20,7 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
-import dev.punit.tidylink.data.repository.BookmarkImportSummary
+import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.repository.TrashedLink
 import dev.punit.tidylink.data.settings.BackupState
@@ -34,6 +35,7 @@ import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.update.UpdateInfo
 import dev.punit.tidylink.data.work.BackupWorker
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -46,8 +48,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.InputStream
 import java.io.OutputStream
 
 /**
@@ -429,13 +431,59 @@ class LinkViewModel(
     /** Streams the whole library as JSON into [stream]. */
     suspend fun exportLinks(stream: OutputStream) = repository.exportLinks(stream)
 
-    /** Returns number of imported links, or -1 on invalid JSON. */
-    suspend fun importLinks(stream: InputStream): Int = repository.importLinks(stream)
+    fun importLinks(uri: Uri) {
+        viewModelScope.launch {
+            message.value = try {
+                val count = withContext(Dispatchers.IO) {
+                    appContext.contentResolver.openInputStream(uri)?.use {
+                        repository.importLinks(it)
+                    } ?: -1
+                }
+                if (count >= 0) {
+                    UiMessage.Plural(R.plurals.msg_imported_json, count, listOf(count))
+                } else {
+                    UiMessage.Text(R.string.msg_import_invalid)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ImportTooLargeException) {
+                UiMessage.Text(R.string.msg_import_too_large)
+            } catch (e: Exception) {
+                UiMessage.Text(R.string.msg_import_failed)
+            }
+        }
+    }
 
-    suspend fun importBookmarks(
-        stream: InputStream,
-        useFoldersAsCategories: Boolean,
-    ): BookmarkImportSummary = repository.importBookmarks(stream, useFoldersAsCategories)
+    fun importBookmarks(uri: Uri, useFoldersAsCategories: Boolean) {
+        viewModelScope.launch {
+            message.value = try {
+                val summary = withContext(Dispatchers.IO) {
+                    appContext.contentResolver.openInputStream(uri)?.use {
+                        repository.importBookmarks(it, useFoldersAsCategories)
+                    }
+                }
+                when {
+                    summary == null -> UiMessage.Text(R.string.msg_import_invalid)
+                    summary.imported == 0 -> UiMessage.Text(R.string.msg_imported_bookmarks_none)
+                    summary.skipped > 0 -> UiMessage.Text(
+                        R.string.msg_imported_bookmarks_with_skips,
+                        listOf(summary.imported, summary.skipped),
+                    )
+                    else -> UiMessage.Plural(
+                        R.plurals.msg_imported_bookmarks,
+                        summary.imported,
+                        listOf(summary.imported),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ImportTooLargeException) {
+                UiMessage.Text(R.string.msg_import_too_large)
+            } catch (e: Exception) {
+                UiMessage.Text(R.string.msg_import_failed)
+            }
+        }
+    }
 
     /**
      * Merges the sprawling category list into a small set of broad ones

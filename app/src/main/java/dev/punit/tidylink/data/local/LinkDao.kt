@@ -21,6 +21,25 @@ interface LinkDao {
     @Upsert
     suspend fun upsertAll(links: List<LinkEntity>)
 
+    /** Bounded-memory restore; a bad later row rolls back every earlier batch. */
+    @Transaction
+    suspend fun importBackup(links: Sequence<LinkEntity>): Int {
+        var count = 0
+        for (batch in links.chunked(100)) {
+            upsertAll(batch)
+            count += batch.size
+        }
+        return count
+    }
+
+    /** Prevents a slow background result from recreating or overwriting a changed row. */
+    @Transaction
+    suspend fun replaceIfUnchanged(expected: LinkEntity, replacement: LinkEntity): Boolean {
+        if (getById(expected.id) != expected) return false
+        upsert(replacement)
+        return true
+    }
+
     /**
      * Paged, filtered, sorted view of the library. The query is built by
      * [LinkQueryBuilder] (filter/sort combinations can't be expressed as a
