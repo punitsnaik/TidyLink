@@ -4,6 +4,8 @@ import dev.punit.tidylink.data.UrlCanonicalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
@@ -68,6 +70,11 @@ class LinkScraperService {
                 )
             }
         }
+        if (isRedditUrl(url) || isRedditUrl(best.resolvedUrl)) {
+            fetchRedditData(url, best.resolvedUrl, best)?.let { reddit ->
+                return@withContext reddit
+            }
+        }
         best
     }
 
@@ -110,6 +117,108 @@ class LinkScraperService {
         null // 4xx (private/deleted video), network, malformed JSON…
     }
 
+    private fun isRedditUrl(url: String): Boolean =
+        url.isNotBlank() && UrlCanonicalizer.hostMatches(url, "reddit.com", "redd.it")
+
+    private fun fetchRedditData(sourceUrl: String, resolvedUrl: String, fallback: ScrapedData): ScrapedData? {
+        val target = when {
+            "/comments/" in resolvedUrl -> resolvedUrl
+            "/comments/" in sourceUrl -> sourceUrl
+            else -> return null
+        }
+        val cleanTarget = target.substringBefore('?').trimEnd('/')
+        val jsonEndpoint = "$cleanTarget.json"
+        return try {
+            val body = Jsoup.connect(jsonEndpoint)
+                .ignoreContentType(true)
+                .userAgent(BROWSER_UA)
+                .timeout(TIMEOUT_MS)
+                .execute()
+                .body()
+            parseRedditJson(body, sourceUrl, cleanTarget, fallback)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    internal fun parseRedditJson(
+        body: String,
+        sourceUrl: String,
+        cleanTarget: String,
+        fallback: ScrapedData,
+    ): ScrapedData? {
+        return try {
+            val root = oembedJson.parseToJsonElement(body).jsonArray
+            val listing = root.firstOrNull()?.jsonObject?.get("data")?.jsonObject
+            val post = listing?.get("children")?.jsonArray?.firstOrNull()?.jsonObject?.get("data")?.jsonObject
+                ?: return null
+
+            val title = post["title"]?.jsonPrimitive?.content?.trim()?.ifBlank { fallback.title } ?: fallback.title
+            val selftext = post["selftext"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val selftextHtml = post["selftext_html"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val postUrl = post["url"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val isSelf = post["is_self"]?.jsonPrimitive?.booleanOrNull ?: true
+
+            val previewUrl = post["preview"]?.jsonObject?.get("images")?.jsonArray
+                ?.firstOrNull()?.jsonObject?.get("source")?.jsonObject
+                ?.get("url")?.jsonPrimitive?.content
+                ?.replace("&amp;", "&")
+            val thumbnail = post["thumbnail"]?.jsonPrimitive?.content?.takeIf { it.startsWith("http") }
+            val imageUrl = previewUrl ?: thumbnail ?: fallback.imageUrl
+
+            val description = if (selftext.isNotBlank()) selftext.take(1500) else fallback.description
+
+            val htmlAnchors = if (selftextHtml.isNotBlank()) {
+                val doc = Jsoup.parseBodyFragment(selftextHtml)
+                doc.select("a[href]").map { a ->
+                    val href = a.attr("href")
+                    RelatedLink(
+                        url = href,
+                        title = a.text().ifBlank { href.substringAfter("://") },
+                        role = "Related",
+                        context = a.parent()?.text().orEmpty().take(300),
+                        contentEvidence = true,
+                    )
+                }
+            } else {
+                emptyList()
+            }
+            val textUrls = if (selftext.isNotBlank()) {
+                UrlCanonicalizer.extractUrls(selftext).map {
+                    RelatedLink(
+                        url = it,
+                        title = it.substringAfter("://"),
+                        role = "Related",
+                        context = selftext.take(300),
+                        contentEvidence = true,
+                    )
+                }
+            } else {
+                emptyList()
+            }
+            val externalLink = if (!isSelf && postUrl.startsWith("http") && !UrlCanonicalizer.hostMatches(postUrl, "reddit.com", "redd.it")) {
+                listOf(RelatedLink(url = postUrl, title = postUrl.substringAfter("://"), role = "Related", context = title, contentEvidence = true))
+            } else {
+                emptyList()
+            }
+
+            val candidates = htmlAnchors + textUrls + externalLink + fallback.relatedLinks
+            val relations = filterRelatedLinks(candidates, sourceUrl, cleanTarget)
+
+            ScrapedData(
+                url = sourceUrl,
+                title = title,
+                description = description,
+                imageUrl = imageUrl,
+                resolvedUrl = cleanTarget,
+                relatedLinks = relations,
+                fetched = true,
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private val oembedJson = Json { ignoreUnknownKeys = true }
 
     private fun fetch(url: String, userAgent: String): ScrapedData? = try {
@@ -136,12 +245,21 @@ class LinkScraperService {
 
         val imageUrl = extractImageUrl(document)
 
+        val canonical = document.selectFirst("link[rel=canonical]")?.absUrl("href")?.takeIf { it.isNotBlank() }
+            ?: meta("meta[property=og:url]")?.takeIf { it.isNotBlank() }
+
+        val resolved = when {
+            document.location().isNotBlank() && document.location() != url -> document.location()
+            !canonical.isNullOrBlank() && canonical != url && UrlCanonicalizer.isValidHttpUrl(canonical) -> canonical
+            else -> ""
+        }
+
         ScrapedData(
             url = url,
             title = title.trim(),
             description = description.trim(),
             imageUrl = imageUrl,
-            resolvedUrl = document.location().takeUnless { it == url }.orEmpty(),
+            resolvedUrl = resolved,
             relatedLinks = extractRelatedLinks(document, url),
             fetched = true,
         )

@@ -54,7 +54,7 @@ private fun textLinks(text: String, evidence: Boolean = true): List<RelatedLink>
     RelatedLink(it, it.substringAfter("://"), "Related", text.take(300), evidence)
 }
 
-private fun filterRelatedLinks(candidates: List<RelatedLink>, sourceUrl: String, resolvedUrl: String): List<RelatedLink> {
+internal fun filterRelatedLinks(candidates: List<RelatedLink>, sourceUrl: String, resolvedUrl: String): List<RelatedLink> {
     val excluded = setOf(sourceUrl, resolvedUrl).filter { it.isNotBlank() }.map(UrlCanonicalizer::dedupeKey)
     return candidates.asSequence().mapNotNull { candidate ->
         val url = candidate.url.trim()

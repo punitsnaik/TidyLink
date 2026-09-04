@@ -1,11 +1,8 @@
-package dev.punit.tidylink.shared.sync
+package dev.punit.tidylink.sync
 
-import dev.punit.tidylink.shared.crypto.PairingCrypto
-import dev.punit.tidylink.shared.crypto.SecureChannel
-import dev.punit.tidylink.shared.db.Peer
-import dev.punit.tidylink.shared.db.SyncState
-import dev.punit.tidylink.shared.db.TidyLinkDb
-import dev.punit.tidylink.shared.identity.DeviceIdentity
+import dev.punit.tidylink.data.local.AppDatabase
+import dev.punit.tidylink.data.local.PeerEntity
+import dev.punit.tidylink.data.local.SyncStateEntity
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
@@ -16,55 +13,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /*
- * Wire script - FIXED TURN ORDER, deadlock-free by construction. The Android
- * implementation MUST follow this exact script.
- *
- * Plain length-prefixed JSON frames (Int32 BE length + UTF-8 JSON):
- *   1. client -> server: PairHello (first contact) or SessionHello (reconnect)
- *   2. server -> client: PairOk or SessionOk
- *      (a PairHello MAC that fails HMAC verification = abort, nothing stored)
- *
- * Both sides then derive directional AES-GCM keys from the static-static
- * X25519 secret via PairingCrypto.sessionKeys(secret, clientNonce,
- * serverNonce). The CLIENT is "a": keyAtoB = client->server. Switch to
- * SecureChannel. Encrypted frames, in order:
- *   3. client -> server: "ok"   (literal bytes - mutual key-possession proof;
- *   4. server -> client: "ok"    a GCM tag failure here = wrong keys, abort)
- *   5. client -> server: SyncRequest(client's stored watermark for server)
- *   6. server -> client: Batch(changesSince(client's watermark))
- *   7. server -> client: SyncRequest(server's stored watermark for client)
- *   8. client -> server: Batch(changesSince(server's watermark))
- *      Each side applies the batch it RECEIVED with
- *      lastSyncAt = its OWN stored watermark for the peer.
- *   9. client -> server: Ack(server batch's sentAt - 1)
- *  10. server -> client: Ack(client batch's sentAt - 1)
- *
- * Only after seeing the peer's Ack does either side persist
- * setWatermark(peer, receivedBatch.sentAt - 1). The -1 covers the watermark
- * boundary: a row stamped in the same millisecond as sentAt but after the
- * batch's SELECT ran would otherwise never sync (changedSince is strict >).
- * Re-sending a boundary row next session is harmless - SyncMerger.apply is
- * idempotent. Any exception before the Ack leaves the watermark untouched;
- * resuming just re-sends, which is safe for the same reason.
- *
- * NOTE for the Android implementer (server side): serve()'s signature changed
- * from serve(socket, pairingToken: ByteArray?) to
- * serve(socket, pairingToken: (() -> ByteArray?)?). The provider is invoked -
- * and must consume the one-time token atomically (getAndSet(null)) - only at
- * the moment the PairHello branch actually runs, so the token dies at first
- * successful MAC verification, not after the whole exchange. On MAC
- * verification failure serve throws PairingMacMismatchException so the caller
- * can restore the unconsumed token (a stranger's garbage must not burn the
- * real pairing window). The wire script above is unchanged.
+ * Wire script - ported from desktop/shared's `sync/SyncSession.kt`, which is
+ * the spec (see that file's header comment for the full turn-order rationale).
+ * FIXED TURN ORDER, must match exactly - this is a client-only port for v1:
+ * Android always dials out ([connect]); it does not run [serve]. The server
+ * side is kept here anyway, unused for now, so a future "sync when the Mac
+ * is asleep and the phone is the one listening" mode doesn't need a rewrite -
+ * ponytail: dead code path, delete if that mode never happens.
  */
 
 /** MAC check failed on a PairHello - the caller may restore the consumed token. */
 class PairingMacMismatchException : IOException("pairing token mismatch")
 
 /**
- * Client-side pairing credentials, decoded from the server's QR: the
- * one-time [token] plus the server identity the QR promised, which the
- * PairOk reply must match.
+ * Client-side pairing credentials, decoded from the Mac's QR: the one-time
+ * [token] plus the server identity the QR promised, which the PairOk reply
+ * must match.
  */
 data class PairingClient(
     val token: ByteArray,
@@ -73,25 +37,18 @@ data class PairingClient(
 )
 
 /** One sync conversation over one already-connected socket. */
-class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
+class SyncSession(val db: AppDatabase, val identity: DeviceIdentity) {
 
     private val random = SecureRandom()
 
-    /**
-     * Server side of a socket: pairing (if [pairingToken] yields a token and
-     * the client sends PairHello) or reconnect, then the full exchange.
-     * [pairingToken] is invoked exactly once, and only when the pairing
-     * branch runs - it should consume the one-time token atomically.
-     * Returns the peer synced with; throws on any failure, in which case the
-     * watermark was not advanced.
-     */
-    suspend fun serve(socket: Socket, pairingToken: (() -> ByteArray?)?): Peer = withContext(Dispatchers.IO) {
+    /** Server side of a socket - unused in v1 (Android never listens). See file header. */
+    suspend fun serve(socket: Socket, pairingToken: (() -> ByteArray?)?): PeerEntity = withContext(Dispatchers.IO) {
         socket.soTimeout = TIMEOUT_MS
         val dataIn = DataInputStream(socket.getInputStream())
         val dataOut = DataOutputStream(socket.getOutputStream())
         val ownNonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
 
-        val peer: Peer
+        val peer: PeerEntity
         val clientNonce: ByteArray
         when (val hello = dataIn.readMsgFrame()) {
             is Msg.PairHello -> {
@@ -107,7 +64,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
                     token, identity.deviceId.encodeToByteArray() + ownPub + ownNonce + hello.nonce
                 )
                 dataOut.writeMsgFrame(Msg.PairOk(identity.deviceId, identity.name, ownPub, ownNonce, mac))
-                peer = Peer(hello.deviceId, hello.name, hello.publicKey, System.currentTimeMillis())
+                peer = PeerEntity(hello.deviceId, hello.name, hello.publicKey, System.currentTimeMillis())
                 db.syncDao().upsertPeer(peer)
                 clientNonce = hello.nonce
             }
@@ -119,7 +76,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
             else -> throw IOException("unexpected handshake message")
         }
 
-        val secret = PairingCrypto.sharedSecret(identity.keyPair.private, peer.publicKey)
+        val secret = PairingCrypto.sharedSecret(identity.keyPair, peer.publicKey)
         val (clientToServer, serverToClient) = PairingCrypto.sessionKeys(secret, clientNonce, ownNonce)
         val channel = SecureChannel(
             socket.getInputStream(), socket.getOutputStream(),
@@ -140,15 +97,15 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
      */
     suspend fun connect(
         socket: Socket,
-        expectedPeer: Peer?,
+        expectedPeer: PeerEntity?,
         pairing: PairingClient? = null,
-    ): Peer = withContext(Dispatchers.IO) {
+    ): PeerEntity = withContext(Dispatchers.IO) {
         socket.soTimeout = TIMEOUT_MS
         val dataIn = DataInputStream(socket.getInputStream())
         val dataOut = DataOutputStream(socket.getOutputStream())
         val ownNonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
 
-        val peer: Peer
+        val peer: PeerEntity
         val serverNonce: ByteArray
         if (pairing != null) {
             val ownPub = PairingCrypto.publicBytes(identity.keyPair)
@@ -166,7 +123,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
             ) {
                 throw IOException("server identity does not match the QR")
             }
-            peer = Peer(ok.deviceId, ok.name, ok.publicKey, System.currentTimeMillis())
+            peer = PeerEntity(ok.deviceId, ok.name, ok.publicKey, System.currentTimeMillis())
             db.syncDao().upsertPeer(peer)
             serverNonce = ok.nonce
         } else {
@@ -176,7 +133,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
             serverNonce = ok.nonce
         }
 
-        val secret = PairingCrypto.sharedSecret(identity.keyPair.private, peer.publicKey)
+        val secret = PairingCrypto.sharedSecret(identity.keyPair, peer.publicKey)
         val (clientToServer, serverToClient) = PairingCrypto.sessionKeys(secret, ownNonce, serverNonce)
         val channel = SecureChannel(
             socket.getInputStream(), socket.getOutputStream(),
@@ -190,7 +147,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
     }
 
     /** The bidirectional exchange, steps 5-10 of the wire script. */
-    private suspend fun exchange(channel: SecureChannel, peer: Peer, clientTurn: Boolean) {
+    private suspend fun exchange(channel: SecureChannel, peer: PeerEntity, clientTurn: Boolean) {
         val merger = SyncMerger(db, identity.deviceId)
         val sync = db.syncDao()
         val myWatermark = sync.getWatermark(peer.deviceId)
@@ -215,7 +172,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
         }
         // Both acks seen - only now does the watermark advance. sentAt - 1,
         // not sentAt: see the watermark-boundary note in the wire script.
-        sync.setWatermark(SyncState(peer.deviceId, theirBatch.sentAt - 1))
+        sync.setWatermark(SyncStateEntity(peer.deviceId, theirBatch.sentAt - 1))
     }
 
     private inline fun <reified T : Msg> expect(bytes: ByteArray): T =

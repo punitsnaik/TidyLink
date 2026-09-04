@@ -1,10 +1,8 @@
-package dev.punit.tidylink.shared.sync
+package dev.punit.tidylink.sync
 
-import androidx.room.immediateTransaction
-import androidx.room.useWriterConnection
-import dev.punit.tidylink.shared.db.Link
-import dev.punit.tidylink.shared.db.TidyLinkDb
-import dev.punit.tidylink.shared.db.TrashedLink
+import androidx.room.withTransaction
+import dev.punit.tidylink.data.local.AppDatabase
+import dev.punit.tidylink.data.local.LinkEntity
 import kotlinx.serialization.json.Json
 
 /** What one [SyncMerger.apply] call did, by row. */
@@ -16,15 +14,18 @@ data class ApplyResult(
 )
 
 /**
- * The sync brain: builds outgoing batches and merges incoming ones.
+ * The sync brain: builds outgoing batches and merges incoming ones. Ported
+ * from desktop/shared's `sync/SyncMerger.kt` - same merge rules, same
+ * behaviour, adapted from Room's KMP `useWriterConnection`/
+ * `immediateTransaction` (not available on this Room version) to the
+ * standard `RoomDatabase.withTransaction` extension.
  *
- * Merge rules (PRD "Sync protocol"): row-level LWW on `modifiedAt`, ties
- * broken lexicographically by device id, deletes are tombstones, and a
- * CONCURRENT edit + delete (both after [apply]'s `lastSyncAt`) resolves in
- * favour of the edit - losing a delete is annoying, losing an edit is data
- * loss.
+ * Merge rules: row-level LWW on `modifiedAt`, ties broken lexicographically
+ * by device id, deletes are tombstones, and a CONCURRENT edit + delete
+ * (both after [apply]'s `lastSyncAt`) resolves in favour of the edit -
+ * losing a delete is annoying, losing an edit is data loss.
  */
-class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
+class SyncMerger(private val db: AppDatabase, private val selfDeviceId: String) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -36,16 +37,12 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
         trashed = db.syncDao().trashedSince(watermark).map { it.toPayload() },
     )
 
-    // The whole batch is ONE transaction: restore (upsert + deleteTrash) and
-    // trash (insertTrash + delete) are two-statement row operations, and a
+    // The whole batch is ONE transaction: restore (upsert + delete-trash) and
+    // trash (insert-trash + delete) are two-statement row operations, and a
     // crash between the statements would leave the id in both tables - the
-    // peer's re-send could then re-trash a restored edit. Plain DAO calls
-    // compose inside useWriterConnection (the connection rides the coroutine
-    // context); only @Transaction DAO methods would not.
+    // peer's re-send could then re-trash a restored edit.
     suspend fun apply(batch: SyncBatch, lastSyncAt: Long): ApplyResult =
-        db.useWriterConnection { transactor ->
-            transactor.immediateTransaction { applyInTransaction(batch, lastSyncAt) }
-        }
+        db.withTransaction { applyInTransaction(batch, lastSyncAt) }
 
     private suspend fun applyInTransaction(batch: SyncBatch, lastSyncAt: Long): ApplyResult {
         val links = db.linkDao()
@@ -69,7 +66,7 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
                 // device id sorts after ours. An identical row (same
                 // modifiedAt, same content) is already applied - ignore it,
                 // which is what makes re-applying a batch idempotent.
-                val incoming = p.toLink()
+                val incoming = p.toEntity(local)
                 val wins = p.modifiedAt > local.modifiedAt ||
                     (p.modifiedAt == local.modifiedAt && incoming != local &&
                         batch.fromDevice > selfDeviceId)
@@ -82,17 +79,20 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
                 }
                 continue
             }
-            val tomb = sync.getTrash(p.id)
+            val tomb = sync.getTrashById(p.id)
             if (tomb != null) {
                 // Rule 2: link vs local trash. Concurrent = edit wins
                 // regardless of timestamps; otherwise LWW with the edit
                 // winning an exact modifiedAt == deletedAt tie (>=). Rule 3's
                 // strict > keeps the link on the same tie, so both devices
-                // converge on the link - the PRD's data-loss bias.
+                // converge on the link.
                 val concurrent = p.modifiedAt > lastSyncAt && tomb.deletedAt > lastSyncAt
                 if (concurrent || p.modifiedAt >= tomb.deletedAt) {
-                    links.upsert(p.toLink())
-                    sync.deleteTrash(p.id)
+                    val localDerived = runCatching {
+                        json.decodeFromString(LinkEntity.serializer(), tomb.json)
+                    }.getOrNull()
+                    links.upsert(p.toEntity(localDerived))
+                    sync.deleteTrashById(p.id)
                     writtenByThisBatch += p.id
                     restored++
                 } else {
@@ -100,7 +100,7 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
                 }
             } else {
                 // Nothing local at all: plain new row.
-                links.upsert(p.toLink())
+                links.upsert(p.toEntity())
                 writtenByThisBatch += p.id
                 upserted++
             }
@@ -117,9 +117,7 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
                 if (!concurrent && t.deletedAt > local.modifiedAt) {
                     // Serialize the LOCAL row into the tombstone so a later
                     // restore recovers what this device actually had.
-                    sync.insertTrash(
-                        TrashedLink(t.id, json.encodeToString(Link.serializer(), local), t.deletedAt)
-                    )
+                    sync.upsertTrash(t.id, json.encodeToString(LinkEntity.serializer(), local), t.deletedAt)
                     links.delete(t.id)
                     trashed++
                 } else {
@@ -128,17 +126,17 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
                 continue
             }
             // Rule 4: trash vs local trash or vs nothing - keep the newer.
-            val tomb = sync.getTrash(t.id)
+            val tomb = sync.getTrashById(t.id)
             if (tomb == null || t.deletedAt > tomb.deletedAt) {
-                sync.insertTrash(TrashedLink(t.id, t.json, t.deletedAt))
+                sync.upsertTrash(t.id, t.json, t.deletedAt)
                 trashed++
             } else {
                 ignored++
             }
         }
         // Rule 5 (no purge messages) is a deliberate absence: each device ages
-        // out its own trash >90 days. ponytail: purge propagation skipped -
-        // identical end state without it.
+        // out its own trash >90 days.
+        // ponytail: purge propagation skipped - identical end state without it.
 
         return ApplyResult(upserted, trashed, restored, ignored)
     }

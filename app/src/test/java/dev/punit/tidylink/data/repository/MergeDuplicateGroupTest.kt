@@ -1,5 +1,6 @@
 package dev.punit.tidylink.data.repository
 
+import dev.punit.tidylink.data.UrlCanonicalizer
 import dev.punit.tidylink.data.local.LinkEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -23,7 +24,10 @@ class MergeDuplicateGroupTest {
         aiSummary: String = "",
         timestamp: Long = 1_000L,
         pinned: Boolean = false,
-        dedupeKey: String = "example.com/a",
+        dedupeKey: String? = null,
+        resolvedUrl: String = "",
+        relatedLinksJson: String = "[]",
+        note: String = "",
     ) = LinkEntity(
         id = id,
         url = url,
@@ -33,8 +37,11 @@ class MergeDuplicateGroupTest {
         category = category,
         aiSummary = aiSummary,
         timestamp = timestamp,
-        dedupeKey = dedupeKey,
+        dedupeKey = dedupeKey ?: UrlCanonicalizer.dedupeKey(resolvedUrl.ifBlank { url }),
         pinned = pinned,
+        resolvedUrl = resolvedUrl,
+        relatedLinksJson = relatedLinksJson,
+        note = note,
     )
 
     @Test
@@ -137,5 +144,41 @@ class MergeDuplicateGroupTest {
             "merged id ${merged.id} is not in the group",
             group.any { it.id == merged.id },
         )
+    }
+
+    @Test
+    fun `merges resolvedUrl and note and updates dedupeKey to canonical`() {
+        val group = listOf(
+            link("short", url = "https://reddit.com/r/sub/s/123", resolvedUrl = "https://reddit.com/r/sub/comments/abc", note = "my note"),
+            link("full", url = "https://reddit.com/r/sub/comments/abc", resolvedUrl = "", category = "Tech"),
+        )
+        val merged = mergeDuplicateGroup(group)!!
+        assertEquals("Tech", merged.category)
+        assertEquals("my note", merged.note)
+        assertEquals("https://reddit.com/r/sub/comments/abc", merged.resolvedUrl)
+        assertEquals("reddit.com/r/sub/comments/abc", merged.dedupeKey)
+    }
+
+    @Test
+    fun `findDuplicateGroups groups short link and target link by resolvedUrl`() {
+        val short = link("1", url = "https://reddit.com/r/HowToMen/s/zGy6FijNnU", resolvedUrl = "https://reddit.com/r/HowToMen/comments/1w5tvxg/app/")
+        val canonical = link("2", url = "https://reddit.com/r/HowToMen/comments/1w5tvxg/app/", resolvedUrl = "")
+        val other = link("3", url = "https://example.com")
+
+        val groups = findDuplicateGroups(listOf(short, canonical, other))
+        assertEquals(1, groups.size)
+        assertEquals(2, groups[0].size)
+        val groupIds = groups[0].map { it.id }.toSet()
+        assertEquals(setOf("1", "2"), groupIds)
+    }
+
+    @Test
+    fun `findDuplicateGroups groups multiple share links resolving to same post`() {
+        val share1 = link("1", url = "https://reddit.com/r/HowToMen/s/token1", resolvedUrl = "https://reddit.com/r/HowToMen/comments/1w5tvxg/app/")
+        val share2 = link("2", url = "https://reddit.com/r/HowToMen/s/token2", resolvedUrl = "https://reddit.com/r/HowToMen/comments/1w5tvxg/app/")
+
+        val groups = findDuplicateGroups(listOf(share1, share2))
+        assertEquals(1, groups.size)
+        assertEquals(2, groups[0].size)
     }
 }
