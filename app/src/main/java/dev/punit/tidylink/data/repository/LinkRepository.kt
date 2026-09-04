@@ -24,6 +24,7 @@ import dev.punit.tidylink.data.work.ClassificationRetryWorker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
 import dev.punit.tidylink.data.work.LinkEnrichmentWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -39,8 +40,9 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
+import kotlinx.serialization.json.decodeToSequence
+import kotlinx.serialization.json.DecodeSequenceMode
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
@@ -70,6 +72,42 @@ data class TrashedLink(val link: LinkEntity, val deletedAt: Long)
 
 /** The chosen file was too large to read safely - see MAX_IMPORT_BYTES. */
 class ImportTooLargeException : Exception()
+
+internal val linkStorageJson = Json {
+    ignoreUnknownKeys = true
+    prettyPrint = true
+    // Time-dependent defaults must not be recalculated when restoring a row.
+    encodeDefaults = true
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+internal fun writeBackupLinks(stream: OutputStream?, links: List<LinkEntity>) {
+    linkStorageJson.encodeToStream(links, requireNotNull(stream) { "Could not open export for writing" })
+}
+
+/** Decode one row at a time; library size must not be a restore limit. */
+@OptIn(ExperimentalSerializationApi::class)
+internal fun readBackupLinks(stream: InputStream): Sequence<LinkEntity> {
+    return linkStorageJson.decodeToSequence(stream, LinkEntity.serializer(), DecodeSequenceMode.ARRAY_WRAPPED)
+}
+
+internal fun backgroundCategory(existing: String, suggested: String): String =
+    if (existing != LinkRepository.FALLBACK_CATEGORY) existing
+    else suggested.takeIf { it.isNotBlank() } ?: existing
+
+internal fun InputStream.readTextCapped(maxBytes: Int): String? {
+    val out = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(16 * 1024)
+    var total = 0
+    while (true) {
+        val read = read(chunk)
+        if (read < 0) break
+        total += read
+        if (total > maxBytes) return null
+        out.write(chunk, 0, read)
+    }
+    return out.toString(Charsets.UTF_8.name())
+}
 
 /**
  * Collapses one group of duplicate rows into the single row that should
@@ -133,10 +171,7 @@ class LinkRepository(
     private val appContext: Context,
 ) {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        prettyPrint = true
-    }
+    private val json = linkStorageJson
 
     /**
      * Serializes duplicate-check + placeholder insert, so two near-simultaneous
@@ -331,6 +366,7 @@ class LinkRepository(
      * tracking-param/www/scheme variant) returns the existing row.
      */
     suspend fun processAndSaveUrl(rawUrl: String): SaveResult {
+        require(UrlCanonicalizer.isValidHttpUrl(rawUrl)) { "invalid web URL" }
         val url = UrlCanonicalizer.cleanUrl(rawUrl)
 
         // 1. Check-and-insert under a mutex so concurrent saves can't race.
@@ -353,6 +389,8 @@ class LinkRepository(
         // 3. Enrich inline; on failure the worker finishes the job later.
         val enriched = try {
             enrich(placeholder)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return SaveResult(placeholder, alreadyExisted = false)
         }
@@ -381,8 +419,11 @@ class LinkRepository(
                 ?: scraped.description.ifBlank { entity.aiSummary },
             scrapeAttempts = entity.scrapeAttempts + 1,
         )
-        linkDao.upsert(updated)
-        return updated
+        return if (linkDao.replaceIfUnchanged(entity, updated)) {
+            updated
+        } else {
+            linkDao.getById(entity.id) ?: entity
+        }
     }
 
     /**
@@ -445,8 +486,11 @@ class LinkRepository(
                 ?: existing.aiSummary,
             scrapeAttempts = existing.scrapeAttempts + 1,
         )
-        linkDao.upsert(updated)
-        return updated
+        return if (linkDao.replaceIfUnchanged(existing, updated)) {
+            updated
+        } else {
+            linkDao.getById(existing.id) ?: existing
+        }
     }
 
     /**
@@ -483,7 +527,10 @@ class LinkRepository(
         // value on the next failure, which is the safe direction.
         val current = linkDao.getById(existing.id) ?: return
         val image = recoveredImageUrl(current.imageUrl, scraped.imageUrl) ?: return
-        linkDao.upsert(current.copy(imageUrl = image))
+        linkDao.replaceIfUnchanged(
+            current,
+            current.copy(imageUrl = image),
+        )
     }
 
     /**
@@ -505,16 +552,17 @@ class LinkRepository(
                         semaphore.withPermit { existing to scraper.scrapeMetadata(existing.url) }
                     }
                 }.awaitAll()
-                linkDao.upsertAll(
-                    scrapedChunk.map { (existing, data) ->
+                scrapedChunk.forEach { (existing, data) ->
+                    linkDao.replaceIfUnchanged(
+                        existing,
                         existing.copy(
                             title = if (data.isRich) data.title else existing.title,
                             description = data.description.ifBlank { existing.description },
                             imageUrl = data.imageUrl ?: existing.imageUrl,
                             scrapeAttempts = existing.scrapeAttempts + 1,
-                        )
-                    }
-                )
+                        ),
+                    )
+                }
             }
         }
 
@@ -543,22 +591,21 @@ class LinkRepository(
                 chunk.map { scrapedFromEntity(it) },
                 categories.take(MAX_PROMPT_CATEGORIES),
             )
-            val updated = mutableListOf<LinkEntity>()
             chunk.zip(results).forEach { (link, classification) ->
                 if (classification != null) {
-                    updated += link.copy(
+                    linkDao.replaceIfUnchanged(link, link.copy(
                         // Same never-downgrade rule as enrich/refreshLink: an
                         // empty field means "no answer", not "clear it".
-                        category = classification.category.takeIf { it.isNotBlank() }
-                            ?.let { resolveCategory(it, categories) } ?: link.category,
+                        category = backgroundCategory(link.category,
+                            classification.category.takeIf { it.isNotBlank() }
+                                ?.let { resolveCategory(it, categories) }.orEmpty()),
                         aiSummary = classification.aiSummary.takeIf { it.isNotBlank() }
                             ?: link.aiSummary,
-                    )
+                    ))
                 } else {
                     failed++
                 }
             }
-            if (updated.isNotEmpty()) linkDao.upsertAll(updated)
         }
         return failed
     }
@@ -657,10 +704,10 @@ class LinkRepository(
      * second full-library String in memory on top of the entity list.
      */
     @OptIn(ExperimentalSerializationApi::class)
-    suspend fun exportLinks(stream: OutputStream) {
+    suspend fun exportLinks(stream: OutputStream?) {
         val links = linkDao.getAllOnce()
         withContext(Dispatchers.IO) {
-            json.encodeToStream(links, stream)
+            writeBackupLinks(stream, links)
         }
     }
 
@@ -673,9 +720,8 @@ class LinkRepository(
      * hundred network round trips before showing anything is not.
      *
      * [useFoldersAsCategories] maps the deepest enclosing bookmark folder
-     * onto the category. Those rows skip AI classification entirely, which
-     * is both cheaper and more faithful - it keeps organisation the user
-     * already did by hand.
+     * onto the category. Background AI can still fill in a summary, but
+     * must preserve the organisation the user already did by hand.
      */
     suspend fun importBookmarks(
         stream: InputStream,
@@ -737,39 +783,19 @@ class LinkRepository(
         return BookmarkImportSummary(imported = rows.size, skipped = skipped)
     }
 
-    /**
-     * Reads the whole stream as UTF-8, or null if it exceeds [maxBytes].
-     *
-     * The cap is not only about memory. [BookmarkHtmlParser] matches
-     * `<A ...>...</A>` with a lazy group, which degrades to O(n^2) on a file
-     * full of unclosed anchors, so bounding the input also bounds the worst
-     * case parse time on a hostile or corrupt file.
-     */
-    private fun InputStream.readTextCapped(maxBytes: Int): String? {
-        val out = java.io.ByteArrayOutputStream()
-        val chunk = ByteArray(16 * 1024)
-        var total = 0
-        while (true) {
-            val read = read(chunk)
-            if (read < 0) break
-            total += read
-            if (total > maxBytes) return null
-            out.write(chunk, 0, read)
-        }
-        return out.toString(Charsets.UTF_8.name())
-    }
-
     /** Returns the number of imported links, or -1 if the JSON was invalid. */
-    @OptIn(ExperimentalSerializationApi::class)
-    suspend fun importLinks(stream: InputStream): Int = try {
-        val links = withContext(Dispatchers.IO) {
-            json.decodeFromStream<List<LinkEntity>>(stream)
+    suspend fun importLinks(stream: InputStream): Int {
+        return try {
+            withContext(Dispatchers.IO) {
+                // Decode inside the transaction: malformed tails and cancellation
+                // roll back earlier batches instead of leaving a partial restore.
+                linkDao.importBackup(readBackupLinks(stream).map { it.withDedupeKey() })
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            -1
         }
-        // Older backups predate the dedupeKey column - compute it on the way in.
-        linkDao.upsertAll(links.map { it.withDedupeKey() })
-        links.size
-    } catch (e: Exception) {
-        -1
     }
 
     // ------------------------------------------------------------------------
