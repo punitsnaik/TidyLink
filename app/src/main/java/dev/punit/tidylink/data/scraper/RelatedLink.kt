@@ -26,7 +26,7 @@ internal fun extractRelatedLinks(document: Document, sourceUrl: String): List<Re
     val content = document.clone()
     content.select("nav, footer, header, aside, [role=navigation], [role=contentinfo], script, style, " +
         ".recommendations, [data-testid=recommendations], .related-posts, .sponsored, #nav-belt, #nav-main").remove()
-    val bodies = content.select("article, [itemprop=articleBody], .markdown-body, [data-testid=post-text], " +
+    val bodies = content.select("article, [itemprop=articleBody], .markdown-body, [data-testid=post-text], .usertext-body, " +
         "#productDescription, #feature-bullets, #technicalSpecifications_section_1")
     val roots = bodies.ifEmpty { content.select("main, [role=main]") }
     val anchors = roots.flatMap { root ->

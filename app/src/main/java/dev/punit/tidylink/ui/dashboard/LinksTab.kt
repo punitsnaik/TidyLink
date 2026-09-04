@@ -38,9 +38,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
@@ -116,24 +118,80 @@ internal fun LinksTab(
     val header: (@Composable () -> Unit)? = if (uiState.isSelectionMode) {
         null
     } else {
-        {
-            LinksHeader(
-                viewModel = viewModel,
-                uiState = uiState,
-                query = query,
-                lazyLinks = lazyLinks,
-                hasProviders = hasProviders,
-                providerBannerDismissed = providerBannerDismissed,
-                onDismissProviderBanner = onDismissProviderBanner,
-                onShowSortSheet = onShowSortSheet,
-                viewMode = viewMode,
-                onToggleViewMode = onToggleViewMode,
-                onShowAiProviders = onShowAiProviders,
-            )
+        remember(
+            query,
+            hasProviders,
+            providerBannerDismissed,
+            viewMode,
+            uiState.categories,
+            uiState.selectedCategory,
+        ) {
+            {
+                LinksHeader(
+                    viewModel = viewModel,
+                    uiState = uiState,
+                    query = query,
+                    lazyLinks = lazyLinks,
+                    hasProviders = hasProviders,
+                    providerBannerDismissed = providerBannerDismissed,
+                    onDismissProviderBanner = onDismissProviderBanner,
+                    onShowSortSheet = onShowSortSheet,
+                    viewMode = viewMode,
+                    onToggleViewMode = onToggleViewMode,
+                    onShowAiProviders = onShowAiProviders,
+                )
+            }
         }
     }
 
-    Box(modifier = modifier) {
+    // Track whether the in-grid header item has scrolled off screen.
+    val headerScrolledAway by remember {
+        derivedStateOf { gridState.firstVisibleItemIndex > 0 }
+    }
+
+    // Track scroll direction to show/hide the floating overlay header.
+    var isOverlayVisible by remember { mutableStateOf(false) }
+
+    // NestedScrollConnection that observes scroll direction without consuming any scroll.
+    val nestedScrollConnection = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                val delta = if (consumed.y != 0f) consumed.y else available.y
+                if (delta < -12f) {
+                    // Scrolling DOWN (content moving up) -> hide header
+                    if (isOverlayVisible) isOverlayVisible = false
+                } else if (delta > 12f) {
+                    // Scrolling UP (content moving down) -> reveal header
+                    if (!isOverlayVisible) isOverlayVisible = true
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+
+    val showOverlay = headerScrolledAway && isOverlayVisible && !uiState.isSelectionMode
+
+    val progress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (showOverlay) 1f else 0f,
+        animationSpec = if (showOverlay) {
+            androidx.compose.animation.core.tween(
+                durationMillis = Motion.DURATION_MEDIUM,
+                easing = Motion.EnterEasing,
+            )
+        } else {
+            androidx.compose.animation.core.tween(
+                durationMillis = 200,
+                easing = Motion.ExitEasing,
+            )
+        },
+        label = "headerOverlayAnimation",
+    )
+
+    Box(modifier = modifier.nestedScroll(nestedScrollConnection)) {
         val density = LocalDensity.current
         var progressBandHeight by remember { mutableStateOf(0.dp) }
         val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
@@ -215,51 +273,28 @@ internal fun LinksTab(
             }
         }
 
-        // Floating search icon: appears when the header (grid index 0)
-        // scrolls off-screen so search stays reachable without scrolling
-        // back to the top. Uses derivedStateOf so only a boolean is
-        // recomposed, not a counter on every scroll pixel.
-        val scope = rememberCoroutineScope()
-        val headerScrolledAway by remember {
-            derivedStateOf { gridState.firstVisibleItemIndex > 0 }
-        }
-        val showSearchIcon = headerScrolledAway && !uiState.isSelectionMode
-
-        AnimatedVisibility(
-            visible = showSearchIcon,
-            enter = fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)) +
-                scaleIn(
-                    initialScale = 0.6f,
-                    animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
-                ),
-            exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)) +
-                scaleOut(
-                    targetScale = 0.6f,
-                    animationSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing),
-                ),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(top = 8.dp, end = 16.dp),
-        ) {
-            GlassSurface(
-                hazeState = hazeState,
-                shape = CircleShape,
-                elevation = 6.dp,
+        // Floating overlay header: smoothly slides down into view from the top
+        // when the user flicks upward after the real in-grid header has scrolled
+        // off-screen, and slides back out of view when scrolling down.
+        // Handled via graphicsLayer (GPU translation + alpha) with zero layout passes
+        // for a butter-smooth 60/120fps animation.
+        if (header != null) {
+            androidx.compose.material3.Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationY = (progress - 1f) * size.height
+                        alpha = progress
+                    },
+                color = MaterialTheme.colorScheme.background,
+                shadowElevation = if (progress > 0.05f) 4.dp else 0.dp,
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
+                Column(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clickable(role = Role.Button) {
-                            scope.launch { gridState.animateScrollToItem(0) }
-                        },
+                        .padding(horizontal = HEADER_GUTTER)
+                        .padding(top = 8.dp, bottom = 4.dp),
                 ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = stringResource(R.string.action_search),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                    )
+                    header()
                 }
             }
         }
