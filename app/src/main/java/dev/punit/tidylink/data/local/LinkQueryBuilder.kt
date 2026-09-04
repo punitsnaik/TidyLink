@@ -40,12 +40,12 @@ object LinkQueryBuilder {
         val args = mutableListOf<Any>()
         val conditions = mutableListOf<String>()
 
-        val from = if (fts.isEmpty()) {
-            "SELECT * FROM links"
-        } else {
-            conditions += "links_fts MATCH ?"
+        val from = "SELECT * FROM links"
+        if (fts.isNotEmpty()) {
+            conditions += "(links.rowid IN (SELECT rowid FROM links_fts WHERE links_fts MATCH ?) " +
+                "OR links.relatedLinksJson LIKE ? ESCAPE '\\')"
             args += fts
-            "SELECT links.* FROM links JOIN links_fts ON links.rowid = links_fts.rowid"
+            args += "%${escapeLike(searchQuery.trim())}%"
         }
 
         if (category != null) {
@@ -62,4 +62,9 @@ object LinkQueryBuilder {
         }
         return SimpleSQLiteQuery(sql, args.toTypedArray())
     }
+
+    private fun escapeLike(value: String): String = value
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
 }

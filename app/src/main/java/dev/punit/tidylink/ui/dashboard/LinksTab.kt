@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
@@ -40,6 +48,7 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
+import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
 
@@ -77,9 +86,11 @@ internal fun LinksTab(
     providerBannerDismissed: Boolean,
     onDismissProviderBanner: () -> Unit,
     gridState: LazyGridState,
-    searchBarHeight: Dp,
+    viewMode: LibraryViewMode,
+    cardRefreshSwipe: Boolean,
+    cardDeleteSwipe: Boolean,
     onShowSortSheet: () -> Unit,
-    onShowToolsSheet: () -> Unit,
+    onToggleViewMode: () -> Unit,
     onShowAiProviders: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onRequestDelete: (LinkEntity) -> Unit,
@@ -101,7 +112,8 @@ internal fun LinksTab(
                 providerBannerDismissed = providerBannerDismissed,
                 onDismissProviderBanner = onDismissProviderBanner,
                 onShowSortSheet = onShowSortSheet,
-                onShowToolsSheet = onShowToolsSheet,
+                viewMode = viewMode,
+                onToggleViewMode = onToggleViewMode,
                 onShowAiProviders = onShowAiProviders,
             )
         }
@@ -112,8 +124,7 @@ internal fun LinksTab(
         var progressBandHeight by remember { mutableStateOf(0.dp) }
         val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
         val bandExtra = if (bandVisible) progressBandHeight else 0.dp
-        val contentTop =
-            (if (uiState.isSelectionMode) 12.dp else searchBarHeight + 8.dp) + bandExtra
+        val contentTop = (if (uiState.isSelectionMode) 12.dp else 8.dp) + bandExtra
 
         val listIsEmpty = lazyLinks.itemCount == 0 &&
             lazyLinks.loadState.refresh !is LoadState.Loading
@@ -143,6 +154,9 @@ internal fun LinksTab(
                 selectedIds = uiState.selectedIds,
                 refreshingIds = uiState.refreshingIds,
                 isSelectionMode = uiState.isSelectionMode,
+                viewMode = viewMode,
+                cardRefreshSwipe = cardRefreshSwipe,
+                cardDeleteSwipe = cardDeleteSwipe,
                 onToggleSelection = viewModel::toggleSelection,
                 onRefreshLink = viewModel::refreshLink,
                 onImageFailed = viewModel::recoverThumbnail,
@@ -160,7 +174,7 @@ internal fun LinksTab(
             visible = bandVisible,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
-            modifier = Modifier.padding(top = if (uiState.isSelectionMode) 0.dp else searchBarHeight),
+            modifier = Modifier.padding(top = 0.dp),
         ) {
             Column(
                 modifier = Modifier
@@ -204,7 +218,8 @@ private fun LinksHeader(
     providerBannerDismissed: Boolean,
     onDismissProviderBanner: () -> Unit,
     onShowSortSheet: () -> Unit,
-    onShowToolsSheet: () -> Unit,
+    viewMode: LibraryViewMode,
+    onToggleViewMode: () -> Unit,
     onShowAiProviders: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -217,35 +232,37 @@ private fun LinksHeader(
         ) {
             Text(
                 text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
+            IconButton(onClick = onToggleViewMode) {
+                Icon(
+                    if (viewMode == LibraryViewMode.ADAPTIVE) AdaptiveViewIcon else Icons.AutoMirrored.Filled.List,
+                    contentDescription = stringResource(
+                        if (viewMode == LibraryViewMode.ADAPTIVE) {
+                            R.string.action_compact_view
+                        } else {
+                            R.string.action_adaptive_view
+                        }
+                    ),
+                )
+            }
             IconButton(onClick = onShowSortSheet) {
                 Icon(
                     SortIcon,
                     contentDescription = stringResource(R.string.action_sort),
                 )
             }
-            // Tools, not Refresh: refresh moved inside the sheet alongside
-            // tidy-up, because a bare refresh icon never said what it
-            // refreshed and the same action was also duplicated in Settings.
-            // Still shows a spinner while refreshing - that feedback was the
-            // one good thing about the old icon.
-            IconButton(onClick = onShowToolsSheet) {
-                if (uiState.isRefreshing) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(24.dp),
-                    )
-                } else {
-                    Icon(
-                        TuneIcon,
-                        contentDescription = stringResource(R.string.action_tools),
-                    )
-                }
-            }
         }
+
+        SearchBar(
+            query = query,
+            onQueryChange = viewModel::search,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        )
 
         // First-run guidance: links exist but AI categorization is off
         // because no provider key was ever added.
@@ -259,32 +276,6 @@ private fun LinksHeader(
 
         Spacer(Modifier.height(4.dp))
 
-        // A failed query must not read as "0 results" - that's how a broken
-        // search query hid in plain sight.
-        if (lazyLinks.loadState.refresh is LoadState.Error) {
-            Text(
-                text = stringResource(R.string.msg_load_failed),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        } else if (lazyLinks.loadState.refresh !is LoadState.Loading) {
-            Text(
-                text = pluralStringResource(
-                    if (query.isBlank() && uiState.selectedCategory == null) {
-                        R.plurals.link_count
-                    } else {
-                        R.plurals.search_results
-                    },
-                    lazyLinks.itemCount,
-                    lazyLinks.itemCount,
-                ),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
-            )
-        }
-
         if (uiState.categories.isNotEmpty()) {
             CategoryTiles(
                 categories = uiState.categories,
@@ -293,5 +284,49 @@ private fun LinksHeader(
                 modifier = Modifier.padding(bottom = 4.dp),
             )
         }
+        ResultsHeader(lazyLinks.loadState.refresh, lazyLinks.itemCount,
+            query.isNotBlank() || uiState.selectedCategory != null)
     }
 }
+
+@Composable
+internal fun ResultsHeader(refresh: LoadState, count: Int, filtered: Boolean) {
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp)) {
+
+        // A failed query must not read as "0 results" - that's how a broken
+        // search query hid in plain sight.
+        if (refresh is LoadState.Error) {
+            Text(
+                text = stringResource(R.string.msg_load_failed),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        } else if (refresh !is LoadState.Loading) {
+            Text(
+                text = pluralStringResource(
+                    if (!filtered) {
+                        R.plurals.link_count
+                    } else {
+                        R.plurals.search_results
+                    },
+                    count,
+                    count,
+                ),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.semantics { heading() },
+            )
+        }
+
+    }
+}
+
+private val AdaptiveViewIcon = ImageVector.Builder("AdaptiveView", 24.dp, 24.dp, 24f, 24f).apply {
+    path(fill = SolidColor(Color.Black)) {
+        moveTo(3f, 3f); horizontalLineTo(21f); verticalLineTo(12f); horizontalLineTo(3f); close()
+        moveTo(3f, 14f); horizontalLineTo(21f); verticalLineTo(16f); horizontalLineTo(3f); close()
+        moveTo(3f, 18f); horizontalLineTo(9f); verticalLineTo(22f); horizontalLineTo(3f); close()
+        moveTo(11f, 18f); horizontalLineTo(21f); verticalLineTo(20f); horizontalLineTo(11f); close()
+    }
+}.build()

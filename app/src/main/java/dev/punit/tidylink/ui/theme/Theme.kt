@@ -40,8 +40,8 @@ private val LightColorScheme = lightColorScheme(
     onPrimaryContainer = OceanOnPrimaryContainer,
     secondary = CoralSecondary,
     onSecondary = CoralOnSecondary,
-    secondaryContainer = CoralSecondaryContainer,
-    onSecondaryContainer = CoralOnSecondaryContainer,
+    secondaryContainer = CoralSecondaryContainerDark,
+    onSecondaryContainer = CoralOnSecondaryContainerDark,
     tertiary = OceanTertiary,
     onTertiary = OceanOnTertiary,
     tertiaryContainer = OceanTertiaryContainer,
@@ -56,20 +56,52 @@ private val LightColorScheme = lightColorScheme(
     outlineVariant = LightOutlineVariant,
 )
 
+private val AmoledColorScheme = darkColorScheme(
+    primary = OceanPrimaryDark,
+    onPrimary = OceanOnPrimaryDark,
+    primaryContainer = OceanPrimaryContainerDark,
+    onPrimaryContainer = OceanOnPrimaryContainerDark,
+    secondary = CoralSecondaryDark,
+    onSecondary = CoralOnSecondaryDark,
+    secondaryContainer = CoralSecondaryContainerDark,
+    onSecondaryContainer = CoralOnSecondaryContainerDark,
+    tertiary = OceanTertiaryDark,
+    onTertiary = OceanOnTertiaryDark,
+    tertiaryContainer = OceanTertiaryContainerDark,
+    onTertiaryContainer = OceanOnTertiaryContainerDark,
+    background = androidx.compose.ui.graphics.Color.Black,
+    onBackground = DarkOnBackground,
+    surface = androidx.compose.ui.graphics.Color.Black,
+    onSurface = DarkOnSurface,
+    surfaceDim = androidx.compose.ui.graphics.Color.Black,
+    surfaceBright = androidx.compose.ui.graphics.Color(0xFF111111),
+    surfaceContainerLowest = androidx.compose.ui.graphics.Color.Black,
+    surfaceContainerLow = androidx.compose.ui.graphics.Color.Black,
+    surfaceContainer = androidx.compose.ui.graphics.Color.Black,
+    surfaceContainerHigh = androidx.compose.ui.graphics.Color(0xFF080808),
+    surfaceContainerHighest = androidx.compose.ui.graphics.Color(0xFF111111),
+    surfaceVariant = androidx.compose.ui.graphics.Color(0xFF111111),
+    onSurfaceVariant = DarkOnSurfaceVariant,
+    outline = DarkOutline,
+    outlineVariant = androidx.compose.ui.graphics.Color(0xFF242424),
+)
+
 @Composable
 fun TidyLinkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amoled: Boolean = false,
     // Material You: derive colors from the user's wallpaper. This is API 31+
     // ONLY - the dynamic*ColorScheme functions read android.R.color.system_*
     // resources that don't exist below S, so calling them on Android 10/11
     // throws at runtime. minSdk is 29, so the check is load-bearing: don't
     // drop it. Below S, and for callers that opt out, the Ocean/Coral brand
     // palettes are used instead.
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val supportsDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val colorScheme = when {
+        amoled -> AmoledColorScheme
         dynamicColor && supportsDynamicColor -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)

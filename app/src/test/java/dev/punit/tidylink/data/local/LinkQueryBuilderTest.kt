@@ -39,7 +39,8 @@ class LinkQueryBuilderTest {
     fun `search joins fts and binds the sanitized query`() {
         val query = LinkQueryBuilder.build("kotl", category = null, sort = SortOrder.TITLE_AZ)
         assertTrue(query.sql.contains("links_fts MATCH ?"))
-        assertEquals(1, query.argCount)
+        assertTrue(query.sql.contains("relatedLinksJson LIKE ?"))
+        assertEquals(2, query.argCount)
     }
 
     @Test
@@ -47,7 +48,7 @@ class LinkQueryBuilderTest {
         val query = LinkQueryBuilder.build("kotl", category = "Dev", sort = SortOrder.NEWEST)
         assertTrue(query.sql.contains("links_fts MATCH ?"))
         assertTrue(query.sql.contains("links.category = ?"))
-        assertEquals(2, query.argCount)
+        assertEquals(3, query.argCount)
     }
 
     /**
@@ -57,7 +58,7 @@ class LinkQueryBuilderTest {
     @Test
     fun `search and category bind in the order they appear in the sql`() {
         val query = LinkQueryBuilder.build("kotl", category = "Dev", sort = SortOrder.NEWEST)
-        assertEquals(listOf("kotl*", "Dev"), boundArgs(query))
+        assertEquals(listOf("kotl*", "%kotl%", "Dev"), boundArgs(query))
     }
 
     /**

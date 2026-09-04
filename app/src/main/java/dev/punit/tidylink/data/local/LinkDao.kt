@@ -70,8 +70,8 @@ interface LinkDao {
     )
     suspend fun getCategoriesOnce(): List<CategoryCount>
 
-    @Query("UPDATE links SET category = :newCategory WHERE category = :oldCategory")
-    suspend fun renameCategory(oldCategory: String, newCategory: String)
+    @Query("UPDATE links SET category = :newCategory, modifiedAt = :now WHERE category = :oldCategory")
+    suspend fun renameCategory(oldCategory: String, newCategory: String, now: Long)
 
     @Query("SELECT * FROM links WHERE category = :category")
     suspend fun getByCategory(category: String): List<LinkEntity>
@@ -88,6 +88,10 @@ interface LinkDao {
 
     @Query("SELECT * FROM links WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<String>): List<LinkEntity>
+
+    /** Rows modified STRICTLY after [t] - what device sync sends out. The boundary row itself was already synced. */
+    @Query("SELECT * FROM links WHERE modifiedAt > :t")
+    suspend fun changedSince(t: Long): List<LinkEntity>
 
     /** Indexed duplicate lookup - no table scan. */
     @Query("SELECT * FROM links WHERE dedupeKey = :key LIMIT 1")
@@ -128,11 +132,14 @@ interface LinkDao {
     @Query(
         """
         SELECT * FROM links
-        WHERE scrapeAttempts = 0 OR (imageUrl IS NULL AND scrapeAttempts < :maxAttempts)
+        WHERE relatedLinksScannedAt = 0
+           OR scrapeAttempts = 0
+           OR (imageUrl IS NULL AND scrapeAttempts < :maxAttempts)
         ORDER BY timestamp DESC
+        LIMIT :limit
         """
     )
-    suspend fun getScrapeCandidates(maxAttempts: Int): List<LinkEntity>
+    suspend fun getScrapeCandidates(maxAttempts: Int, limit: Int): List<LinkEntity>
 
     /**
      * Same question as [getScrapeCandidates], just a count. Deliberately
@@ -145,10 +152,27 @@ interface LinkDao {
     @Query(
         """
         SELECT COUNT(*) FROM links
-        WHERE scrapeAttempts = 0 OR (imageUrl IS NULL AND scrapeAttempts < :maxAttempts)
+        WHERE relatedLinksScannedAt = 0
+           OR scrapeAttempts = 0
+           OR (imageUrl IS NULL AND scrapeAttempts < :maxAttempts)
         """
     )
     suspend fun countScrapeCandidates(maxAttempts: Int): Int
+
+    @Query("""
+        SELECT * FROM links
+        WHERE relatedLinksJson NOT LIKE :currentPrefix
+           OR (:withAi AND relatedLinksJson LIKE :withoutAiPrefix)
+        ORDER BY timestamp DESC LIMIT :limit
+    """)
+    suspend fun getRelationCandidates(currentPrefix: String, withoutAiPrefix: String, withAi: Boolean, limit: Int): List<LinkEntity>
+
+    @Query("""
+        SELECT COUNT(*) FROM links
+        WHERE relatedLinksJson NOT LIKE :currentPrefix
+           OR (:withAi AND relatedLinksJson LIKE :withoutAiPrefix)
+    """)
+    suspend fun countRelationCandidates(currentPrefix: String, withoutAiPrefix: String, withAi: Boolean): Int
 
     /** Links that have been scraped but never successfully classified. */
     @Query(
@@ -164,16 +188,16 @@ interface LinkDao {
     @Query("SELECT COUNT(*) FROM links WHERE scrapeAttempts = 0")
     fun countNeverScraped(): Flow<Int>
 
-    @Query("UPDATE links SET pinned = :pinned WHERE id = :id")
-    suspend fun setPinned(id: String, pinned: Boolean)
+    @Query("UPDATE links SET pinned = :pinned, modifiedAt = :now WHERE id = :id")
+    suspend fun setPinned(id: String, pinned: Boolean, now: Long)
 
 
     /** Paged view of pinned links only - drives the Pinned tab. */
     @Query("SELECT * FROM links WHERE pinned = 1 ORDER BY timestamp DESC")
     fun pinnedPagingSource(): PagingSource<Int, LinkEntity>
 
-    @Query("UPDATE links SET category = :category WHERE id IN (:ids)")
-    suspend fun moveToCategory(ids: List<String>, category: String)
+    @Query("UPDATE links SET category = :category, modifiedAt = :now WHERE id IN (:ids)")
+    suspend fun moveToCategory(ids: List<String>, category: String, now: Long)
 
     @Query("DELETE FROM links WHERE id = :id")
     suspend fun delete(id: String)

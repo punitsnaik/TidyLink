@@ -33,3 +33,5 @@ CLAUDE.md
 RELEASE_GUIDE.md
 /project-docs/
 .superpowers/
+.gstack/
+/AGENTS.md

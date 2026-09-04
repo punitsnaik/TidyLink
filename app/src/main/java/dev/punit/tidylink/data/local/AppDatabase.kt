@@ -8,13 +8,18 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [LinkEntity::class, LinkFtsEntity::class, TrashedLinkEntity::class],
-    version = 8,
+    entities = [
+        LinkEntity::class, LinkFtsEntity::class, TrashedLinkEntity::class,
+        PeerEntity::class, SyncStateEntity::class,
+    ],
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun linkDao(): LinkDao
+
+    abstract fun syncDao(): SyncDao
 
     companion object {
         @Volatile
@@ -28,7 +33,7 @@ abstract class AppDatabase : RoomDatabase() {
         val ALL_MIGRATIONS: Array<Migration>
             get() = arrayOf(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                MIGRATION_6_7, MIGRATION_7_8,
+                MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
             )
 
         /** v2: indexed dedupeKey (fast duplicate checks) + pinned flag. */
@@ -275,6 +280,61 @@ abstract class AppDatabase : RoomDatabase() {
                         "`note` TEXT NOT NULL, tokenize=unicode61, content=`links`)"
                 )
                 db.execSQL("INSERT INTO `links_fts`(`links_fts`) VALUES('rebuild')")
+            }
+        }
+
+        /**
+         * v9: device sync (`project-docs/PRD-android-sync.md`). Adds
+         * `modifiedAt` to `links` - the LWW clock `changedSince` reads - plus
+         * two new tables, `peers` and `sync_state`, that hold no data of
+         * their own to migrate.
+         *
+         * `modifiedAt` is a plain `ADD COLUMN`, not the 12-step recreate:
+         * unlike MIGRATION_3_4/6_7/7_8 this never DROPs a column, so the
+         * SQLite 3.35 / API 34 restriction that forced those recreates does
+         * not apply here - see MIGRATION_4_5's comment for the same
+         * reasoning. `links_fts` is untouched for the same reason: nothing
+         * about this migration reassigns rowids, since the table is never
+         * dropped.
+         *
+         * Backfill sets `modifiedAt = timestamp` for every existing row -
+         * "last touched now" would be a lie for links nobody has edited
+         * since they were saved, and would make a fresh v9 upgrade look like
+         * a burst of edits to the very first peer it syncs with.
+         *
+         * `peers`/`sync_state` mirror desktop/shared's `Peer`/`SyncState`
+         * tables field-for-field - the two must agree, since a `PeerEntity`
+         * row here is compared against a wire-decoded `Peer` on the Mac side
+         * of every handshake. `publicKey` is a BLOB (X.509 SubjectPublicKeyInfo
+         * bytes); Room maps `ByteArray` to BLOB with no `@ColumnInfo` needed.
+         *
+         * Must match the generated 9.json exactly; Room validates it. Not
+         * yet generated - needs a Mac build, same as every schema bump here.
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `links` ADD COLUMN `modifiedAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `links` SET `modifiedAt` = `timestamp`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `peers` (" +
+                        "`deviceId` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`publicKey` BLOB NOT NULL, `addedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`deviceId`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_state` (" +
+                        "`peerId` TEXT NOT NULL, `lastSyncAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`peerId`))"
+                )
+            }
+        }
+
+        /** v10: Android-local redirect and direct-relation enrichment. */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `links` ADD COLUMN `resolvedUrl` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `links` ADD COLUMN `relatedLinksJson` TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE `links` ADD COLUMN `relatedLinksScannedAt` INTEGER NOT NULL DEFAULT 0")
             }
         }
 

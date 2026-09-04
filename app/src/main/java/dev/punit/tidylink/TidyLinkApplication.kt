@@ -9,6 +9,7 @@ import dev.punit.tidylink.data.settings.BackupStore
 import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ThemeStore
+import dev.punit.tidylink.data.settings.UiPreferencesStore
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,8 @@ class AppContainer(application: Application) {
     val onboardingStore by lazy { OnboardingStore(app.applicationContext) }
 
     val themeStore by lazy { ThemeStore(app.applicationContext) }
+
+    val uiPreferencesStore by lazy { UiPreferencesStore(app.applicationContext) }
 
     val backupStore by lazy { BackupStore(app.applicationContext) }
 

@@ -29,8 +29,9 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
+                ThemeMode.AMOLED -> true
             }
-            TidyLinkTheme(darkTheme = darkTheme) {
+            TidyLinkTheme(darkTheme = darkTheme, amoled = themeMode == ThemeMode.AMOLED) {
                 // Gated here rather than inside DashboardScreen so the intro
                 // is a sibling of the dashboard, not a layer on top of it.
                 // The flag is loaded synchronously from prefs (OnboardingStore),
