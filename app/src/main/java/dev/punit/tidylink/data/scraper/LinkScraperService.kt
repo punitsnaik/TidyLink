@@ -4,6 +4,8 @@ import dev.punit.tidylink.data.UrlCanonicalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jsoup.Jsoup
@@ -68,6 +70,18 @@ class LinkScraperService {
                 )
             }
         }
+        if (isRedditUrl(url) || isRedditUrl(best.resolvedUrl)) {
+            val targetUrl = best.resolvedUrl.takeIf { it.isNotBlank() } ?: url
+            if ("/comments/" in targetUrl) {
+                val oldRedditUrl = targetUrl
+                    .replace("www.reddit.com", "old.reddit.com")
+                    .replace("://reddit.com", "://old.reddit.com")
+                val oldRedditData = fetch(oldRedditUrl, CRAWLER_UA)
+                if (oldRedditData != null) {
+                    return@withContext best.copy(relatedLinks = mergeRelatedLinks(best, oldRedditData))
+                }
+            }
+        }
         best
     }
 
@@ -110,6 +124,12 @@ class LinkScraperService {
         null // 4xx (private/deleted video), network, malformed JSON…
     }
 
+    private fun isRedditUrl(url: String): Boolean =
+        url.isNotBlank() && UrlCanonicalizer.hostMatches(url, "reddit.com", "redd.it")
+
+
+
+
     private val oembedJson = Json { ignoreUnknownKeys = true }
 
     private fun fetch(url: String, userAgent: String): ScrapedData? = try {
@@ -136,6 +156,11 @@ class LinkScraperService {
         ).orEmpty()
 
         val imageUrl = extractImageUrl(document)
+
+        // Publisher canonical/og:url metadata is not an observed redirect destination.
+        val resolved = document.location().takeIf {
+            it != url && UrlCanonicalizer.isValidHttpUrl(it)
+        }.orEmpty()
 
         ScrapedData(
             url = url,

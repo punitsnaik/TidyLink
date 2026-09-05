@@ -138,6 +138,37 @@ class SyncMergerTest {
         assertEquals(150, db.syncDao().getTrash("a")?.deletedAt)
     }
 
+    @Test
+    fun exact_tie_incoming_link_vs_local_trash_restores_the_link() = runTest {
+        val merger = SyncMerger(db, "mac")
+        val old = link("a", title = "old", modifiedAt = 40)
+        // Exact modifiedAt == deletedAt tie, NOT concurrent (both before
+        // lastSyncAt = 100). Rule 2's >= makes the edit win the tie; rule 3's
+        // strict > makes the OTHER device (local link vs incoming trash, test
+        // below) keep its link too - so both devices converge on the link.
+        db.syncDao().insertTrash(TrashedLink("a", trashJson(old), deletedAt = 50))
+        val incoming = link("a", title = "edited", modifiedAt = 50).toPayload()
+        val result = merger.apply(batch("phone", links = listOf(incoming)), lastSyncAt = 100)
+        assertEquals(ApplyResult(upserted = 0, trashed = 0, restored = 1, ignored = 0), result)
+        assertEquals("edited", db.linkDao().getById("a")?.title)
+        assertNull(db.syncDao().getTrash("a"))
+    }
+
+    @Test
+    fun exact_tie_incoming_trash_vs_local_link_keeps_the_link() = runTest {
+        val merger = SyncMerger(db, "mac")
+        // The same tie seen from the other device: local link at 50, incoming
+        // tombstone at 50, not concurrent. Rule 3's strict > ignores the
+        // trash. Together with the restore above, both devices converge on
+        // the link - edit wins ties, per the PRD's data-loss bias.
+        db.linkDao().upsert(link("a", title = "edited", modifiedAt = 50))
+        val incoming = TrashPayload("a", "{}", deletedAt = 50)
+        val result = merger.apply(batch("phone", trashed = listOf(incoming)), lastSyncAt = 100)
+        assertEquals(ApplyResult(0, 0, 0, 1), result)
+        assertEquals("edited", db.linkDao().getById("a")?.title)
+        assertNull(db.syncDao().getTrash("a"))
+    }
+
     // Rule 3: incoming trash vs local link
 
     @Test

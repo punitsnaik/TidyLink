@@ -33,6 +33,10 @@ updates:
         versions: [">=1.19"]
       - dependency-name: "androidx.lifecycle:*"
         versions: [">=2.11"]
+      # This BOM selects Compose 1.12, whose AAR metadata requires SDK 37.
+      # Remove alongside the deliberate compileSdk upgrade.
+      - dependency-name: "androidx.compose:compose-bom"
+        versions: [">=2026.08.00"]
     groups:
       androidx:
         patterns:

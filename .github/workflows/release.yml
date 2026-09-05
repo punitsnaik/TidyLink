@@ -64,8 +64,8 @@ jobs:
             printf 'keyPassword=%s\n' "$KEY_PASSWORD"
           } > keystore.properties
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Android validation
+        run: ./gradlew lint testDebugUnitTest assembleDebug assembleDebugAndroidTest --stacktrace
 
       - name: Build signed release APK
         run: ./gradlew assembleRelease --stacktrace
@@ -88,8 +88,8 @@ jobs:
       #     RELEASE_CERT_SHA256 = AA:BB:CC:...  (from:
       #       keytool -list -v -keystore release.jks | grep "SHA256:")
       #
-      # Leave it unset and the job still blocks debug keys, but cannot detect
-      # a stale one - it will say so loudly.
+      # A missing fingerprint blocks publication: subject names cannot identify
+      # the current release key.
       - name: Verify the release signer
         env:
           EXPECTED_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
@@ -119,8 +119,8 @@ jobs:
           echo "signer SHA-256: $ACTUAL"
 
           if [ -z "${EXPECTED_SHA256:-}" ]; then
-            echo "::warning::RELEASE_CERT_SHA256 variable is not set - cannot verify this is the CURRENT key, only that it isn't the debug key. Set it to pin the signer."
-            exit 0
+            echo "::error::RELEASE_CERT_SHA256 is required to verify the release key."
+            exit 1
           fi
 
           EXPECTED=$(tr -d ' :' <<< "$EXPECTED_SHA256" | tr 'A-F' 'a-f')
@@ -150,6 +150,24 @@ jobs:
           set -euo pipefail
           VERSION="${REF_NAME#v}"
           echo "name=TidyLink-$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify APK version matches tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -Vr | head -n1)
+          if [ -z "$AAPT" ]; then
+            echo "::error::aapt not found - cannot verify APK version."
+            exit 1
+          fi
+          BADGING=$("$AAPT" dump badging "$APK")
+          ACTUAL_VERSION=$(sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" <<< "$BADGING")
+          if [ -z "$ACTUAL_VERSION" ] || [ "$ACTUAL_VERSION" != "${REF_NAME#v}" ]; then
+            echo "::error::APK version does not match the release tag."
+            exit 1
+          fi
 
       - name: Rename APK
         env:

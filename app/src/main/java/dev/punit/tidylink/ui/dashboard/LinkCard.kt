@@ -575,13 +575,14 @@ internal fun LinkCardBody(
 
 @Composable
 internal fun CategoryBadge(category: String, modifier: Modifier = Modifier) {
+    val colors = categoryColors(category)
     Text(
         text = category,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSecondaryContainer,
+        color = colors.content,
         modifier = modifier
             .background(
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                color = colors.container,
                 shape = RoundedCornerShape(8.dp),
             )
             .padding(horizontal = 8.dp, vertical = 3.dp),

@@ -14,11 +14,13 @@ okhttp = "5.4.0"
 kotlinxSerializationJson = "1.8.1"
 coroutines = "1.10.2"
 work = "2.10.0"
-browser = "1.8.0"
-paging = "3.3.6"
+browser = "1.10.0"
+paging = "3.5.1"
 androidxTest = "1.7.0"
 androidxTestExtJunit = "1.3.0"
 haze = "1.7.2"
+zxing = "4.3.0"
+bouncycastle = "1.79"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -69,6 +71,18 @@ coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp"
 # translucent fallback tint automatically.
 haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 haze-materials = { group = "dev.chrisbanes.haze", name = "haze-materials", version.ref = "haze" }
+
+# QR scanning for device pairing (Settings -> Pair device). Bundles its own
+# capture Activity + permission handling, no CameraX/ML Kit needed - the
+# desktop app already generates QR codes with the zxing core this wraps.
+zxing-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxing" }
+
+# X25519 for device-sync pairing. Android's own JCE provider only gained
+# XDH/X25519 support at API 33 (minSdk here is 29), so the platform
+# KeyPairGenerator/KeyAgreement used on desktop isn't available - BC's
+# lightweight crypto API does the same math in pure Java on any API level.
+# See sync/PairingCrypto.kt.
+bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
