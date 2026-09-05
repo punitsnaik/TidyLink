@@ -94,15 +94,7 @@ internal fun ToolsTab(
             ToolRow(
                 icon = CopyIcon,
                 title = stringResource(R.string.tools_duplicates_title),
-                subtitle = if (duplicateCount == 0) {
-                    stringResource(R.string.tools_duplicates_none)
-                } else {
-                    pluralStringResource(
-                        R.plurals.tools_duplicates_subtitle,
-                        duplicateCount,
-                        duplicateCount,
-                    )
-                },
+                subtitle = stringResource(R.string.msg_duplicates_unavailable),
                 onClick = onMergeDuplicates,
                 enabled = duplicateCount > 0,
             )
