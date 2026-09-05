@@ -51,6 +51,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -61,9 +63,7 @@ import dev.punit.tidylink.data.repository.CategoryNames
 private const val MAX_VISIBLE_CATEGORY_TILES = 8
 
 /**
- * Category filter as a row of icon + label tiles (grocery-app style): the
- * selected tile gets a raised tonal card look. Only the busiest categories
- * get a tile; a "More" tile opens a bottom sheet with the full list.
+ * Small filled category chips; "More" opens the full list.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -86,7 +86,6 @@ internal fun CategoryTiles(
         item {
             CategoryTile(
                 label = stringResource(R.string.chip_all),
-                icon = Icons.AutoMirrored.Filled.List,
                 selected = selected == null,
                 onClick = { onSelect(null) },
             )
@@ -96,7 +95,6 @@ internal fun CategoryTiles(
             item {
                 CategoryTile(
                     label = selected,
-                    icon = categoryIcon(selected),
                     selected = true,
                     onClick = { onSelect(null) },
                 )
@@ -105,7 +103,6 @@ internal fun CategoryTiles(
         items(topCategories, key = { it.category }) { cat ->
             CategoryTile(
                 label = cat.category,
-                icon = categoryIcon(cat.category),
                 selected = selected == cat.category,
                 onClick = { onSelect(if (selected == cat.category) null else cat.category) },
             )
@@ -114,7 +111,6 @@ internal fun CategoryTiles(
             item {
                 CategoryTile(
                     label = stringResource(R.string.tile_more),
-                    icon = Icons.Default.MoreVert,
                     selected = false,
                     onClick = { showAllCategories = true },
                 )
@@ -166,33 +162,30 @@ internal fun CategoryTiles(
 @Composable
 private fun CategoryTile(
     label: String,
-    icon: ImageVector,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(8.dp),
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
-            Color.Transparent
+            MaterialTheme.colorScheme.surfaceContainerHighest
         },
         contentColor = if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        shadowElevation = if (selected) 2.dp else 0.dp,
+        modifier = Modifier.semantics { this.selected = selected },
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
-                .widthIn(min = 64.dp, max = 104.dp)
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+                .widthIn(max = 160.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(24.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,

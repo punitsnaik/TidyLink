@@ -1,5 +1,7 @@
 package dev.punit.tidylink.ui.dashboard
 
+import androidx.paging.ItemSnapshotList
+
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,6 +11,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
@@ -47,9 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -61,11 +62,13 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
-import dev.punit.tidylink.data.repository.ImportTooLargeException
+
+import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.UpdateState
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -94,6 +97,12 @@ private data class PendingConfirm(
     val destructive: Boolean = false,
     val confirm: () -> Unit,
 )
+
+/** Paging indices include leading placeholders, unlike the loaded item slice. */
+internal fun detailLinkIndex(snapshot: ItemSnapshotList<LinkEntity>, id: String): Int {
+    val loadedIndex = snapshot.items.indexOfFirst { it.id == id }
+    return if (loadedIndex < 0) -1 else snapshot.placeholdersBefore + loadedIndex
+}
 
 /** The delete flavours of [PendingConfirm] - by far the most common. */
 private fun deleteConfirm(
@@ -127,6 +136,10 @@ fun DashboardScreen(
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val libraryViewMode by viewModel.libraryViewMode.collectAsStateWithLifecycle()
+    val cardRefreshSwipe by viewModel.cardRefreshSwipe.collectAsStateWithLifecycle()
+    val cardDeleteSwipe by viewModel.cardDeleteSwipe.collectAsStateWithLifecycle()
+    val pageSwipeNavigation by viewModel.pageSwipeNavigation.collectAsStateWithLifecycle()
     val backupState by viewModel.backupState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -138,7 +151,6 @@ fun DashboardScreen(
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showSortSheet by rememberSaveable { mutableStateOf(false) }
     var showThemeSheet by rememberSaveable { mutableStateOf(false) }
-    var showToolsSheet by rememberSaveable { mutableStateOf(false) }
     var showAiProviders by rememberSaveable { mutableStateOf(false) }
     var showMoveDialog by rememberSaveable { mutableStateOf(false) }
     var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
@@ -147,6 +159,10 @@ fun DashboardScreen(
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
     var selectedLinkId by rememberSaveable { mutableStateOf<String?>(null) }
+    var detailHistory by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var savedRelatedUrls by remember { mutableStateOf(emptySet<String>()) }
+    var savingRelatedUrls by remember { mutableStateOf(emptySet<String>()) }
+    var detailVisible by rememberSaveable { mutableStateOf(false) }
     var editingLinkId by rememberSaveable { mutableStateOf<String?>(null) }
     // Every confirm-then-act in the app funnels through one dialog: deletes
     // (swipe, selection toolbar, detail sheet, trash), tidy-up, empty trash
@@ -163,12 +179,6 @@ fun DashboardScreen(
 
     // One source feeds every glass surface (pill nav, pinned search bar).
     val hazeState = remember { HazeState() }
-
-    // The glass bar's real height: the M3 TextField grows with the
-    // system font scale, so the reserved band is measured, never
-    // asserted. SEARCH_OVERLAY_HEIGHT is only the first-frame guess.
-    val density = LocalDensity.current
-    var searchBarHeight by remember { mutableStateOf(SEARCH_OVERLAY_HEIGHT) }
 
     // Any modal window open -> the content behind it blurs (API 31+; a
     // no-op below, where the standard scrim still dims). Derived, not
@@ -189,9 +199,9 @@ fun DashboardScreen(
     // nobody can see. Confirmations raised from inside it are still dialogs
     // and still set this via pendingConfirm.
     val modalOpen = showAddDialog || showSortSheet || showThemeSheet ||
-        showToolsSheet || showAiProviders || showMoveDialog ||
+        showAiProviders || showMoveDialog ||
         showBookmarkImport || pendingConfirm != null ||
-        selectedLinkId != null || editingLinkId != null
+        editingLinkId != null
     // Paired with SHEET_GLASS_ALPHA - the two are one effect and should be
     // tuned together. 20.dp left the backdrop only softly out of focus and
     // read as a flat panel; 40.dp is deep enough that what shows through
@@ -284,7 +294,10 @@ fun DashboardScreen(
         scope.launch {
             val text = try {
                 withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    val output = requireNotNull(context.contentResolver.openOutputStream(uri)) {
+                        "Could not open export for writing"
+                    }
+                    output.use { stream ->
                         viewModel.exportLinks(stream)
                     }
                 }
@@ -301,23 +314,7 @@ fun DashboardScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            val text = try {
-                val count = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        viewModel.importLinks(stream)
-                    } ?: -1
-                }
-                if (count >= 0) {
-                    resources.getQuantityString(R.plurals.msg_imported_json, count, count)
-                } else {
-                    resources.getString(R.string.msg_import_invalid)
-                }
-            } catch (e: Exception) {
-                resources.getString(R.string.msg_import_failed)
-            }
-            snackbarHostState.showSnackbar(text)
-        }
+        viewModel.importLinks(uri)
     }
 
     // Bookmark import: the folder choice is made in a dialog BEFORE the
@@ -327,36 +324,7 @@ fun DashboardScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            val text = try {
-                val summary = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        viewModel.importBookmarks(stream, importFoldersAsCategories)
-                    }
-                }
-                when {
-                    summary == null -> resources.getString(R.string.msg_import_invalid)
-                    summary.imported == 0 -> resources.getString(
-                        R.string.msg_imported_bookmarks_none
-                    )
-                    summary.skipped > 0 -> resources.getString(
-                        R.string.msg_imported_bookmarks_with_skips,
-                        summary.imported,
-                        summary.skipped,
-                    )
-                    else -> resources.getQuantityString(
-                        R.plurals.msg_imported_bookmarks,
-                        summary.imported,
-                        summary.imported,
-                    )
-                }
-            } catch (e: ImportTooLargeException) {
-                resources.getString(R.string.msg_import_too_large)
-            } catch (e: Exception) {
-                resources.getString(R.string.msg_import_failed)
-            }
-            snackbarHostState.showSnackbar(text)
-        }
+        viewModel.importBookmarks(uri, importFoldersAsCategories)
     }
 
     // Backup folder: a TREE uri, not the CreateDocument uri the manual
@@ -399,7 +367,7 @@ fun DashboardScreen(
             .fillMaxSize()
             .then(if (backdropBlur > 0.dp) Modifier.blur(backdropBlur) else Modifier),
         topBar = {
-            if (uiState.isSelectionMode && currentTab != DashboardTab.Settings) {
+            if (uiState.isSelectionMode && currentTab in listOf(DashboardTab.Links, DashboardTab.Pinned)) {
                 TopAppBar(
                     title = { Text(stringResource(R.string.selected_count, uiState.selectedIds.size)) },
                     navigationIcon = {
@@ -438,7 +406,9 @@ fun DashboardScreen(
                         Text(
                             when (currentTab) {
                                 DashboardTab.Pinned -> stringResource(R.string.nav_pinned)
-                                else -> stringResource(R.string.title_settings)
+                                DashboardTab.Tools -> stringResource(R.string.nav_tools)
+                                DashboardTab.Settings -> stringResource(R.string.title_settings)
+                                DashboardTab.Links -> stringResource(R.string.app_name)
                             }
                         )
                     },
@@ -452,7 +422,7 @@ fun DashboardScreen(
         // overlaid on the content so the list scrolls underneath it.
         snackbarHost = {
             // Lifted clear of the floating pill nav.
-            SnackbarHost(
+            if (!detailVisible) SnackbarHost(
                 snackbarHostState,
                 modifier = Modifier.padding(bottom = 88.dp),
             )
@@ -488,11 +458,21 @@ fun DashboardScreen(
                             providerBannerDismissed = providerBannerDismissed,
                             onDismissProviderBanner = { providerBannerDismissed = true },
                             gridState = gridState,
-                            searchBarHeight = searchBarHeight,
+                            viewMode = libraryViewMode,
+                            cardRefreshSwipe = cardRefreshSwipe,
+                            cardDeleteSwipe = cardDeleteSwipe,
                             onShowSortSheet = { showSortSheet = true },
-                            onShowToolsSheet = { showToolsSheet = true },
+                            onToggleViewMode = {
+                                viewModel.setLibraryViewMode(
+                                    if (libraryViewMode == LibraryViewMode.ADAPTIVE) {
+                                        LibraryViewMode.COMPACT
+                                    } else {
+                                        LibraryViewMode.ADAPTIVE
+                                    }
+                                )
+                            },
                             onShowAiProviders = { showAiProviders = true },
-                            onOpenDetail = { selectedLinkId = it },
+                            onOpenDetail = { detailHistory = arrayListOf(); selectedLinkId = it; detailVisible = true },
                             onRequestDelete = { link ->
                                 pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
                             },
@@ -518,14 +498,20 @@ fun DashboardScreen(
                                     selectedIds = uiState.selectedIds,
                                     refreshingIds = uiState.refreshingIds,
                                     isSelectionMode = uiState.isSelectionMode,
+                                    viewMode = libraryViewMode,
+                                    cardRefreshSwipe = cardRefreshSwipe,
+                                    cardDeleteSwipe = cardDeleteSwipe,
                                     onToggleSelection = viewModel::toggleSelection,
                                     onRefreshLink = viewModel::refreshLink,
                                     onImageFailed = viewModel::recoverThumbnail,
-                                    onOpenDetail = { selectedLinkId = it },
+                                    onOpenDetail = { detailHistory = arrayListOf(); selectedLinkId = it; detailVisible = true },
                                     onRequestDelete = { link ->
                                         pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
                                     },
                                     animateEntrance = false,
+                                    header = if (uiState.isSelectionMode) null else {
+                                        { ResultsHeader(lazyPinned.loadState.refresh, lazyPinned.itemCount, false) }
+                                    },
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(innerPadding),
@@ -533,9 +519,41 @@ fun DashboardScreen(
                             }
                         }
 
+                        DashboardTab.Tools -> ToolsTab(
+                            isRefreshing = uiState.isRefreshing,
+                            duplicateCount = uiState.duplicateCount,
+                            trashCount = uiState.trashCount,
+                            onFetchMissingDetails = viewModel::refreshAll,
+                            onOpenTrash = { showTrash = true },
+                            onTidyCategories = {
+                                pendingConfirm = PendingConfirm(
+                                    title = R.string.tidy_confirm_title,
+                                    body = R.string.tidy_confirm_body,
+                                    action = R.string.tidy_confirm_action,
+                                ) { viewModel.tidyCategories() }
+                            },
+                            onMergeDuplicates = {
+                                pendingConfirm = PendingConfirm(
+                                    title = R.string.dialog_duplicates_title,
+                                    body = R.plurals.dialog_duplicates_body,
+                                    action = R.string.dialog_duplicates_confirm,
+                                    count = uiState.duplicateCount,
+                                ) { viewModel.mergeDuplicates() }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        )
+
                         DashboardTab.Settings -> SettingsTab(
                             themeMode = themeMode,
+                            cardRefreshSwipe = cardRefreshSwipe,
+                            cardDeleteSwipe = cardDeleteSwipe,
+                            pageSwipeNavigation = pageSwipeNavigation,
                             onThemeClick = { showThemeSheet = true },
+                            onCardRefreshSwipeChange = viewModel::setCardRefreshSwipe,
+                            onCardDeleteSwipeChange = viewModel::setCardDeleteSwipe,
+                            onPageSwipeNavigationChange = viewModel::setPageSwipeNavigation,
                             onAiProviders = { showAiProviders = true },
                             onExport = { exportLauncher.launch("tidylink-backup.json") },
                             onImportBookmarks = { showBookmarkImport = true },
@@ -576,37 +594,6 @@ fun DashboardScreen(
                                 .padding(innerPadding),
                         )
                     }
-                }
-            }
-
-            // Floating glass search bar - Links tab only, stands down in
-            // selection mode (the contextual TopAppBar takes over). Fixed
-            // height by construction: the old header jank came from
-            // animating header HEIGHT, and this bar never resizes.
-            AnimatedVisibility(
-                visible = currentTab == DashboardTab.Links && !uiState.isSelectionMode,
-                enter = fadeIn(
-                    tween(Motion.FADE_IN_MS, delayMillis = Motion.FADE_OUT_MS, easing = Motion.EnterEasing)
-                ),
-                exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
-                modifier = Modifier.align(Alignment.TopCenter),
-            ) {
-                GlassSurface(
-                    hazeState = hazeState,
-                    shape = RoundedCornerShape(28.dp),
-                    modifier = Modifier
-                        .padding(top = innerPadding.calculateTopPadding())
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .fillMaxWidth()
-                        .onSizeChanged {
-                            searchBarHeight = with(density) { it.height.toDp() } + 16.dp
-                        },
-                ) {
-                    SearchBar(
-                        query = query,
-                        onQueryChange = viewModel::search,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
                 }
             }
 
@@ -751,43 +738,6 @@ fun DashboardScreen(
         }
     }
 
-    if (showToolsSheet) {
-        ToolsSheet(
-            isRefreshing = uiState.isRefreshing,
-            duplicateCount = uiState.duplicateCount,
-            trashCount = uiState.trashCount,
-            onFetchMissingDetails = {
-                showToolsSheet = false
-                viewModel.refreshAll()
-            },
-            onOpenTrash = {
-                showToolsSheet = false
-                showTrash = true
-            },
-            // Tidy-up is a bulk, non-undoable rename - always confirm first.
-            onTidyCategories = {
-                showToolsSheet = false
-                pendingConfirm = PendingConfirm(
-                    title = R.string.tidy_confirm_title,
-                    body = R.string.tidy_confirm_body,
-                    action = R.string.tidy_confirm_action,
-                ) { viewModel.tidyCategories() }
-            },
-            // Merging deletes rows. It keeps the richest copy and folds the
-            // others into it, but it still can't be undone - state the count.
-            onMergeDuplicates = {
-                showToolsSheet = false
-                pendingConfirm = PendingConfirm(
-                    title = R.string.dialog_duplicates_title,
-                    body = R.plurals.dialog_duplicates_body,
-                    action = R.string.dialog_duplicates_confirm,
-                    count = uiState.duplicateCount,
-                ) { viewModel.mergeDuplicates() }
-            },
-            onDismiss = { showToolsSheet = false },
-        )
-    }
-
     if (showSortSheet) {
         SortSheet(
             current = uiState.sortOrder,
@@ -827,7 +777,7 @@ fun DashboardScreen(
         // Swipe navigates the list the user actually tapped from, so it
         // follows the active search, category filter and sort.
         val activeList = if (currentTab == DashboardTab.Pinned) lazyPinned else lazyLinks
-        val currentIndex = activeList.itemSnapshotList.items.indexOfFirst { it.id == id }
+        val currentIndex = detailLinkIndex(activeList.itemSnapshotList, id)
         // Touching the current index lets Paging prefetch around it
         // (prefetchDistance = 90), so a long swipe streak keeps finding
         // neighbours instead of stopping dead at the loaded edge.
@@ -855,32 +805,79 @@ fun DashboardScreen(
             }
         }
         shownLink?.let { link ->
+            LaunchedEffect(link.id, link.relatedLinksJson, link.description, uiState.isProcessing) {
+                val urls = dev.punit.tidylink.data.scraper.availableRelatedLinks(
+                    link.relatedLinksJson, link.description, link.url, link.resolvedUrl,
+                ).map { it.url }.toSet()
+                val saved = urls.filter { viewModel.findSavedLink(it) != null }.toSet()
+                savedRelatedUrls = (savedRelatedUrls - urls) + saved
+            }
+            AnimatedVisibility(
+                visible = detailVisible,
+                enter = slideInHorizontally(Motion.spatialSpring()) { it / 8 } +
+                    fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)),
+                exit = slideOutHorizontally(tween(Motion.DURATION_MEDIUM)) { it / 8 } +
+                    fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
             LinkDetailSheet(
                 link = link,
                 isBusy = link.id in uiState.refreshingIds,
+                pageSwipeNavigation = pageSwipeNavigation,
                 hasPrev = detailNeighborIndex(currentIndex, -1, activeList.itemCount) != null,
                 hasNext = detailNeighborIndex(currentIndex, 1, activeList.itemCount) != null,
                 onNavigate = { direction ->
                     detailNeighborIndex(currentIndex, direction, activeList.itemCount)
                         ?.let { target -> activeList[target]?.let { selectedLinkId = it.id } }
                 },
-                onDismiss = { selectedLinkId = null },
-                onOpen = {
-                    selectedLinkId = null
-                    openLink(context, link.url)
+                onDismiss = {
+                    if (detailHistory.isNotEmpty()) {
+                        selectedLinkId = detailHistory.last()
+                        detailHistory = ArrayList(detailHistory.dropLast(1))
+                    } else {
+                        detailVisible = false
+                        scope.launch {
+                            delay(Motion.DURATION_MEDIUM.toLong())
+                            if (!detailVisible) selectedLinkId = null
+                        }
+                    }
                 },
+                onOpen = { openLink(context, link.url) },
                 // Keep the sheet open: updated details animate in place.
                 onRefresh = { viewModel.refreshLink(link) },
                 onDelete = {
                     pendingConfirm = deleteConfirm(1) {
+                        detailVisible = false
                         selectedLinkId = null
                         viewModel.deleteLink(link)
                     }
                 },
                 onEdit = { editingLinkId = link.id },
                 onTogglePin = { viewModel.togglePin(link) },
+                onOpenRelated = { url ->
+                    scope.launch {
+                        val saved = viewModel.findSavedLink(url)
+                        if (saved != null && saved.id != link.id) {
+                            detailHistory = ArrayList(detailHistory + link.id)
+                            selectedLinkId = saved.id
+                        } else {
+                            openLink(context, url)
+                        }
+                    }
+                },
+                savedRelatedUrls = savedRelatedUrls,
+                savingRelatedUrls = savingRelatedUrls,
+                feedback = { SnackbarHost(snackbarHostState) },
+                onSaveRelated = { url ->
+                    savingRelatedUrls = savingRelatedUrls + url
+                    viewModel.processAndSaveUrl(url) { saved ->
+                        savingRelatedUrls = savingRelatedUrls - url
+                        if (saved) savedRelatedUrls = savedRelatedUrls + url
+                    }
+                },
                 onImageFailed = { failed -> viewModel.recoverThumbnail(failed) },
             )
+            }
         }
     }
 }

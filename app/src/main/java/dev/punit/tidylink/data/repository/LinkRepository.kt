@@ -20,10 +20,14 @@ import dev.punit.tidylink.data.local.SortOrder
 import dev.punit.tidylink.data.local.TrashedLinkEntity
 import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.scraper.ScrapedData
+import dev.punit.tidylink.data.scraper.CURRENT_RELATION_CACHE_PREFIX
+import dev.punit.tidylink.data.scraper.NO_AI_RELATION_CACHE_PREFIX
+import dev.punit.tidylink.data.scraper.resolveRelationCache
 import dev.punit.tidylink.data.work.ClassificationRetryWorker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
 import dev.punit.tidylink.data.work.LinkEnrichmentWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -39,8 +43,9 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
+import kotlinx.serialization.json.decodeToSequence
+import kotlinx.serialization.json.DecodeSequenceMode
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
@@ -70,6 +75,42 @@ data class TrashedLink(val link: LinkEntity, val deletedAt: Long)
 
 /** The chosen file was too large to read safely - see MAX_IMPORT_BYTES. */
 class ImportTooLargeException : Exception()
+
+internal val linkStorageJson = Json {
+    ignoreUnknownKeys = true
+    prettyPrint = true
+    // Time-dependent defaults must not be recalculated when restoring a row.
+    encodeDefaults = true
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+internal fun writeBackupLinks(stream: OutputStream?, links: List<LinkEntity>) {
+    linkStorageJson.encodeToStream(links, requireNotNull(stream) { "Could not open export for writing" })
+}
+
+/** Decode one row at a time; library size must not be a restore limit. */
+@OptIn(ExperimentalSerializationApi::class)
+internal fun readBackupLinks(stream: InputStream): Sequence<LinkEntity> {
+    return linkStorageJson.decodeToSequence(stream, LinkEntity.serializer(), DecodeSequenceMode.ARRAY_WRAPPED)
+}
+
+internal fun backgroundCategory(existing: String, suggested: String): String =
+    if (existing != LinkRepository.FALLBACK_CATEGORY) existing
+    else suggested.takeIf { it.isNotBlank() } ?: existing
+
+internal fun InputStream.readTextCapped(maxBytes: Int): String? {
+    val out = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(16 * 1024)
+    var total = 0
+    while (true) {
+        val read = read(chunk)
+        if (read < 0) break
+        total += read
+        if (total > maxBytes) return null
+        out.write(chunk, 0, read)
+    }
+    return out.toString(Charsets.UTF_8.name())
+}
 
 /**
  * Collapses one group of duplicate rows into the single row that should
@@ -133,10 +174,7 @@ class LinkRepository(
     private val appContext: Context,
 ) {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        prettyPrint = true
-    }
+    private val json = linkStorageJson
 
     /**
      * Serializes duplicate-check + placeholder insert, so two near-simultaneous
@@ -190,7 +228,20 @@ class LinkRepository(
      * query would still retry it.
      */
     suspend fun hasPendingEnrichment(): Boolean =
-        linkDao.countScrapeCandidates(MAX_SCRAPE_ATTEMPTS) > 0
+        linkDao.countScrapeCandidates(MAX_SCRAPE_ATTEMPTS) > 0 ||
+            linkDao.countRelationCandidates(CURRENT_RELATION_CACHE_PREFIX, NO_AI_RELATION_CACHE_PREFIX, aiService.isConfigured()) > 0
+
+    fun scheduleRelationBackfill() = EnrichmentSweepWorker.enqueue(appContext)
+
+    /** Cache attempted decisions, including fallback, so an outage cannot create a paid retry loop. */
+    private suspend fun discoverRelatedLinks(existing: LinkEntity, scraped: ScrapedData, force: Boolean = false): String {
+        val data = scraped.copy(
+            title = scraped.title.ifBlank { existing.title },
+            description = scraped.description.ifBlank { existing.description },
+            resolvedUrl = if (scraped.fetched) scraped.resolvedUrl else existing.resolvedUrl,
+        )
+        return resolveRelationCache(existing.relatedLinksJson, data, aiService.isConfigured(), force, aiService::selectRelatedLinks)
+    }
 
     /** Live view of a single link - keeps the detail sheet current. */
     fun observeLink(id: String): Flow<LinkEntity?> = linkDao.observeById(id)
@@ -293,6 +344,7 @@ class LinkRepository(
             // Only trimmed, never blank-guarded: clearing a note is a
             // legitimate edit, unlike clearing the title.
             note = note.trim(),
+            modifiedAt = System.currentTimeMillis(),
         )
         linkDao.upsert(updated)
         return updated
@@ -302,10 +354,11 @@ class LinkRepository(
     suspend fun moveToCategory(ids: List<String>, category: String) {
         val target = category.trim()
         if (ids.isEmpty() || target.isBlank()) return
-        linkDao.moveToCategory(ids, resolveCategory(target, allCategoryNames()))
+        linkDao.moveToCategory(ids, resolveCategory(target, allCategoryNames()), System.currentTimeMillis())
     }
 
-    suspend fun setPinned(id: String, pinned: Boolean) = linkDao.setPinned(id, pinned)
+    suspend fun setPinned(id: String, pinned: Boolean) =
+        linkDao.setPinned(id, pinned, System.currentTimeMillis())
 
 
 
@@ -331,6 +384,7 @@ class LinkRepository(
      * tracking-param/www/scheme variant) returns the existing row.
      */
     suspend fun processAndSaveUrl(rawUrl: String): SaveResult {
+        require(UrlCanonicalizer.isValidHttpUrl(rawUrl)) { "invalid web URL" }
         val url = UrlCanonicalizer.cleanUrl(rawUrl)
 
         // 1. Check-and-insert under a mutex so concurrent saves can't race.
@@ -353,6 +407,8 @@ class LinkRepository(
         // 3. Enrich inline; on failure the worker finishes the job later.
         val enriched = try {
             enrich(placeholder)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return SaveResult(placeholder, alreadyExisted = false)
         }
@@ -368,6 +424,7 @@ class LinkRepository(
         val classification =
             aiService.classify(scraped, existing.take(MAX_PROMPT_CATEGORIES))
         if (classification == null) scheduleClassificationRetry()
+        val relations = discoverRelatedLinks(entity, scraped)
 
         val updated = entity.copy(
             title = if (scraped.isRich) scraped.title else entity.title,
@@ -380,9 +437,16 @@ class LinkRepository(
             aiSummary = classification?.aiSummary?.takeIf { it.isNotBlank() }
                 ?: scraped.description.ifBlank { entity.aiSummary },
             scrapeAttempts = entity.scrapeAttempts + 1,
+            modifiedAt = System.currentTimeMillis(),
+            resolvedUrl = if (scraped.fetched) scraped.resolvedUrl else entity.resolvedUrl,
+            relatedLinksJson = relations,
+            relatedLinksScannedAt = System.currentTimeMillis(),
         )
-        linkDao.upsert(updated)
-        return updated
+        return if (linkDao.replaceIfUnchanged(entity, updated)) {
+            updated
+        } else {
+            linkDao.getById(entity.id) ?: entity
+        }
     }
 
     /**
@@ -394,7 +458,8 @@ class LinkRepository(
         val link = linkDao.getById(id) ?: return
         val incomplete = link.scrapeAttempts == 0 ||
             link.category == FALLBACK_CATEGORY ||
-            link.aiSummary.isBlank()
+            link.aiSummary.isBlank() ||
+            link.relatedLinksScannedAt == 0L
         if (incomplete) enrich(link)
     }
 
@@ -433,6 +498,8 @@ class LinkRepository(
         )
         if (classification == null) scheduleClassificationRetry()
 
+        val relations = discoverRelatedLinks(existing, scraped, force = true)
+
         val updated = existing.copy(
             title = if (scraped.isRich) scraped.title else existing.title,
             description = scraped.description.ifBlank { existing.description },
@@ -444,9 +511,16 @@ class LinkRepository(
             aiSummary = classification?.aiSummary?.takeIf { it.isNotBlank() }
                 ?: existing.aiSummary,
             scrapeAttempts = existing.scrapeAttempts + 1,
+            modifiedAt = System.currentTimeMillis(),
+            resolvedUrl = if (scraped.fetched) scraped.resolvedUrl else existing.resolvedUrl,
+            relatedLinksJson = relations,
+            relatedLinksScannedAt = System.currentTimeMillis(),
         )
-        linkDao.upsert(updated)
-        return updated
+        return if (linkDao.replaceIfUnchanged(existing, updated)) {
+            updated
+        } else {
+            linkDao.getById(existing.id) ?: existing
+        }
     }
 
     /**
@@ -483,7 +557,10 @@ class LinkRepository(
         // value on the next failure, which is the safe direction.
         val current = linkDao.getById(existing.id) ?: return
         val image = recoveredImageUrl(current.imageUrl, scraped.imageUrl) ?: return
-        linkDao.upsert(current.copy(imageUrl = image))
+        linkDao.replaceIfUnchanged(
+            current,
+            current.copy(imageUrl = image, modifiedAt = System.currentTimeMillis()),
+        )
     }
 
     /**
@@ -493,10 +570,10 @@ class LinkRepository(
      * cap), then classifies everything scraped-but-uncategorized. Writes are
      * batched so the UI isn't invalidated once per link.
      */
-    suspend fun refreshUnfetched(): RefreshSummary = sweepMutex.withLock {
+    suspend fun refreshUnfetched(limit: Int = Int.MAX_VALUE): RefreshSummary = sweepMutex.withLock {
         mergeDuplicates()
 
-        val toScrape = linkDao.getScrapeCandidates(MAX_SCRAPE_ATTEMPTS)
+        val toScrape = linkDao.getScrapeCandidates(MAX_SCRAPE_ATTEMPTS, limit)
         coroutineScope {
             val semaphore = Semaphore(SCRAPE_CONCURRENCY)
             toScrape.chunked(WRITE_BATCH_SIZE).forEach { chunk ->
@@ -505,24 +582,44 @@ class LinkRepository(
                         semaphore.withPermit { existing to scraper.scrapeMetadata(existing.url) }
                     }
                 }.awaitAll()
-                linkDao.upsertAll(
-                    scrapedChunk.map { (existing, data) ->
+                scrapedChunk.forEach { (existing, data) ->
+                    val relations = discoverRelatedLinks(existing, data)
+                    linkDao.replaceIfUnchanged(
+                        existing,
                         existing.copy(
                             title = if (data.isRich) data.title else existing.title,
                             description = data.description.ifBlank { existing.description },
                             imageUrl = data.imageUrl ?: existing.imageUrl,
                             scrapeAttempts = existing.scrapeAttempts + 1,
-                        )
-                    }
-                )
+                            modifiedAt = System.currentTimeMillis(),
+                            resolvedUrl = if (data.fetched) data.resolvedUrl else existing.resolvedUrl,
+                            relatedLinksJson = relations,
+                            relatedLinksScannedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
             }
+        }
+
+        // Legacy derived links get their own bounded pass, including already-classified bookmarks.
+        val toRelate = linkDao.getRelationCandidates(
+            CURRENT_RELATION_CACHE_PREFIX, NO_AI_RELATION_CACHE_PREFIX, aiService.isConfigured(), limit,
+        )
+        for (existing in toRelate) {
+            val data = scraper.scrapeMetadata(existing.url)
+            val relations = discoverRelatedLinks(existing, data)
+            linkDao.replaceIfUnchanged(existing, existing.copy(
+                relatedLinksJson = relations,
+                relatedLinksScannedAt = System.currentTimeMillis(),
+                resolvedUrl = if (data.fetched) data.resolvedUrl else existing.resolvedUrl,
+            ))
         }
 
         val toClassify = linkDao.getClassifyCandidates(FALLBACK_CATEGORY)
         val unclassified = classifyInBatches(toClassify)
         if (unclassified > 0) scheduleClassificationRetry()
 
-        val touched = (toScrape.map { it.id } + toClassify.map { it.id }).toSet().size
+        val touched = (toScrape.map { it.id } + toClassify.map { it.id } + toRelate.map { it.id }).toSet().size
         RefreshSummary(
             refreshed = touched,
             unclassified = unclassified,
@@ -543,22 +640,22 @@ class LinkRepository(
                 chunk.map { scrapedFromEntity(it) },
                 categories.take(MAX_PROMPT_CATEGORIES),
             )
-            val updated = mutableListOf<LinkEntity>()
             chunk.zip(results).forEach { (link, classification) ->
                 if (classification != null) {
-                    updated += link.copy(
+                    linkDao.replaceIfUnchanged(link, link.copy(
                         // Same never-downgrade rule as enrich/refreshLink: an
                         // empty field means "no answer", not "clear it".
-                        category = classification.category.takeIf { it.isNotBlank() }
-                            ?.let { resolveCategory(it, categories) } ?: link.category,
+                        category = backgroundCategory(link.category,
+                            classification.category.takeIf { it.isNotBlank() }
+                                ?.let { resolveCategory(it, categories) }.orEmpty()),
                         aiSummary = classification.aiSummary.takeIf { it.isNotBlank() }
                             ?: link.aiSummary,
-                    )
+                        modifiedAt = System.currentTimeMillis(),
+                    ))
                 } else {
                     failed++
                 }
             }
-            if (updated.isNotEmpty()) linkDao.upsertAll(updated)
         }
         return failed
     }
@@ -576,7 +673,9 @@ class LinkRepository(
         var removed = 0
         linkDao.getAllOnce().groupBy { UrlCanonicalizer.dedupeKey(it.url) }.values.forEach { group ->
             val merged = mergeDuplicateGroup(group) ?: return@forEach
-            linkDao.upsert(merged)
+            // Bumped here, not inside mergeDuplicateGroup - that function is
+            // pure and unit-tested on exact output; "now" doesn't belong in it.
+            linkDao.upsert(merged.copy(modifiedAt = System.currentTimeMillis()))
             val doomed = group.filter { it.id != merged.id }.map { it.id }
             linkDao.deleteByIds(doomed)
             removed += doomed.size
@@ -611,7 +710,7 @@ class LinkRepository(
             if (old in validOld && target.isNotBlank() &&
                 target != old && old != FALLBACK_CATEGORY
             ) {
-                linkDao.renameCategory(old, target)
+                linkDao.renameCategory(old, target, System.currentTimeMillis())
                 merged++
             }
         }
@@ -631,7 +730,7 @@ class LinkRepository(
             val canonical = group.maxByOrNull { it.count }?.category ?: return@forEach
             group.forEach { variant ->
                 if (variant.category != canonical) {
-                    linkDao.renameCategory(variant.category, canonical)
+                    linkDao.renameCategory(variant.category, canonical, System.currentTimeMillis())
                     merged++
                 }
             }
@@ -657,10 +756,10 @@ class LinkRepository(
      * second full-library String in memory on top of the entity list.
      */
     @OptIn(ExperimentalSerializationApi::class)
-    suspend fun exportLinks(stream: OutputStream) {
+    suspend fun exportLinks(stream: OutputStream?) {
         val links = linkDao.getAllOnce()
         withContext(Dispatchers.IO) {
-            json.encodeToStream(links, stream)
+            writeBackupLinks(stream, links)
         }
     }
 
@@ -673,9 +772,8 @@ class LinkRepository(
      * hundred network round trips before showing anything is not.
      *
      * [useFoldersAsCategories] maps the deepest enclosing bookmark folder
-     * onto the category. Those rows skip AI classification entirely, which
-     * is both cheaper and more faithful - it keeps organisation the user
-     * already did by hand.
+     * onto the category. Background AI can still fill in a summary, but
+     * must preserve the organisation the user already did by hand.
      */
     suspend fun importBookmarks(
         stream: InputStream,
@@ -737,39 +835,19 @@ class LinkRepository(
         return BookmarkImportSummary(imported = rows.size, skipped = skipped)
     }
 
-    /**
-     * Reads the whole stream as UTF-8, or null if it exceeds [maxBytes].
-     *
-     * The cap is not only about memory. [BookmarkHtmlParser] matches
-     * `<A ...>...</A>` with a lazy group, which degrades to O(n^2) on a file
-     * full of unclosed anchors, so bounding the input also bounds the worst
-     * case parse time on a hostile or corrupt file.
-     */
-    private fun InputStream.readTextCapped(maxBytes: Int): String? {
-        val out = java.io.ByteArrayOutputStream()
-        val chunk = ByteArray(16 * 1024)
-        var total = 0
-        while (true) {
-            val read = read(chunk)
-            if (read < 0) break
-            total += read
-            if (total > maxBytes) return null
-            out.write(chunk, 0, read)
-        }
-        return out.toString(Charsets.UTF_8.name())
-    }
-
     /** Returns the number of imported links, or -1 if the JSON was invalid. */
-    @OptIn(ExperimentalSerializationApi::class)
-    suspend fun importLinks(stream: InputStream): Int = try {
-        val links = withContext(Dispatchers.IO) {
-            json.decodeFromStream<List<LinkEntity>>(stream)
+    suspend fun importLinks(stream: InputStream): Int {
+        return try {
+            withContext(Dispatchers.IO) {
+                // Decode inside the transaction: malformed tails and cancellation
+                // roll back earlier batches instead of leaving a partial restore.
+                linkDao.importBackup(readBackupLinks(stream).map { it.withDedupeKey() })
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            -1
         }
-        // Older backups predate the dedupeKey column - compute it on the way in.
-        linkDao.upsertAll(links.map { it.withDedupeKey() })
-        links.size
-    } catch (e: Exception) {
-        -1
     }
 
     // ------------------------------------------------------------------------
@@ -821,6 +899,9 @@ class LinkRepository(
         }
         return null
     }
+
+    suspend fun findSavedLink(url: String): LinkEntity? =
+        findExistingByUrl(UrlCanonicalizer.cleanUrl(url))
 
     /** Current taxonomy (busiest first), excluding the fallback bucket. */
     private suspend fun allCategoryNames(): List<String> =

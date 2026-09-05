@@ -21,4 +21,16 @@ class WorkRetryTest {
         assertTrue(first.hashCode() == second.hashCode())
         assertNotEquals(saveWorkName(first), saveWorkName(second))
     }
+
+    @Test
+    fun `backup names are unique and rotation only owns exact backup names`() {
+        assertNotEquals(backupFileName(1_000L), backupFileName(1_001L))
+        assertNotEquals(backupFileName(1_000L), backupFileName(1_000L))
+        assertTrue(isOwnedBackupName(backupFileName(1_000L)))
+        assertFalse(isOwnedBackupName("tidylink-pending-123.json"))
+        assertTrue(isOwnedBackupName("tidylink-backup-2026-09-03.json"))
+        assertTrue(isOwnedBackupName("tidylink-backup-2026-09-03T102030123.json"))
+        assertFalse(isOwnedBackupName("tidylink-backup-keep-forever.json"))
+        assertFalse(isOwnedBackupName("tidylink-backup-2026-09-03-copy.json"))
+    }
 }

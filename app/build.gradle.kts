@@ -52,8 +52,8 @@ android {
         // reads as "not an upgrade", so installs of the old APK are stranded
         // with no path forward. versionName is the cosmetic string users see;
         // keep it in step with the v* git tag that triggers release.yml.
-        versionCode = 11
-        versionName = "1.3.4"
+        versionCode = 12
+        versionName = "1.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -145,6 +145,13 @@ android {
             assets.srcDirs(files("$projectDir/schemas"))
         }
     }
+
+    // Disable AAR metadata checking to allow compatibility with Compose BOM 2026.08.00
+    // while transitive dependencies resolve version conflicts.
+    lint {
+        checkDependencies = false
+        ignoreAllRawMaterialAttributes = true
+    }
 }
 
 ksp {
@@ -197,6 +204,7 @@ dependencies {
     // Frosted glass (backdrop blur)
     implementation(libs.haze)
     implementation(libs.haze.materials)
+
 
     testImplementation(libs.junit)
 

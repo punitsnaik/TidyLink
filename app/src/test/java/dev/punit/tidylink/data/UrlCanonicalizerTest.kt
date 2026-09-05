@@ -2,6 +2,7 @@ package dev.punit.tidylink.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -230,5 +231,11 @@ class UrlCanonicalizerTest {
         assertFalse(UrlCanonicalizer.isValidHttpUrl(""))
         assertFalse(UrlCanonicalizer.isValidHttpUrl("   "))
         assertFalse(UrlCanonicalizer.isValidHttpUrl("not a url at all"))
+    }
+
+    @Test
+    fun `shared text accepts a bare domain but rejects trailing punctuation`() {
+        assertEquals("example.com", UrlCanonicalizer.extractSharedUrl(" example.com "))
+        assertNull(UrlCanonicalizer.extractSharedUrl("bad.example,"))
     }
 }

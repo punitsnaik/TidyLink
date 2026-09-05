@@ -1,6 +1,6 @@
 package dev.punit.tidylink.data.local
 
-import kotlinx.serialization.json.Json
+import dev.punit.tidylink.data.repository.linkStorageJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,15 +12,11 @@ import org.junit.Test
  * the round trip actually holds, so it is worth asserting rather than
  * assuming.
  *
- * Mirrors LinkRepository's Json configuration. If that config ever changes,
- * this test is the thing that should fail.
+ * Uses the repository's actual local-storage JSON configuration.
  */
 class TrashSerializationTest {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        prettyPrint = true
-    }
+    private val json = linkStorageJson
 
     private val link = LinkEntity(
         id = "abc",
@@ -41,6 +37,14 @@ class TrashSerializationTest {
     fun `a trashed link survives the round trip with every field intact`() {
         val restored = json.decodeFromString<LinkEntity>(json.encodeToString(link))
         assertEquals(link, restored)
+    }
+
+    @Test
+    fun `local storage writes defaults instead of regenerating them on restore`() {
+        val encoded = json.encodeToString(link.copy(timestamp = System.currentTimeMillis()))
+        assertTrue(json.configuration.encodeDefaults)
+        assertTrue(encoded.contains("\"timestamp\""))
+        assertTrue(encoded.contains("\"pinned\""))
     }
 
     /**

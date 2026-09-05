@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.punit.tidylink.TidyLinkApplication
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 /**
@@ -28,8 +29,11 @@ class EnrichmentSweepWorker(
         val repository =
             (applicationContext as TidyLinkApplication).container.linkRepository
         return try {
-            repository.refreshUnfetched()
+            repository.refreshUnfetched(BACKFILL_BATCH_SIZE)
+            if (repository.hasPendingEnrichment()) enqueue(applicationContext)
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             if (shouldRetry(runAttemptCount, MAX_ATTEMPTS)) Result.retry() else Result.failure()
         }
@@ -38,6 +42,7 @@ class EnrichmentSweepWorker(
     companion object {
         private const val UNIQUE_NAME = "enrichment_sweep"
         private const val MAX_ATTEMPTS = 3
+        private const val BACKFILL_BATCH_SIZE = 24
 
         fun enqueue(context: Context) {
             // Deliberately NOT expedited: APPEND_OR_REPLACE can chain this

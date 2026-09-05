@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import dev.punit.tidylink.data.local.LinkEntity
+import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -68,6 +69,9 @@ internal fun LinksGrid(
     selectedIds: Set<String>,
     refreshingIds: Set<String>,
     isSelectionMode: Boolean,
+    viewMode: LibraryViewMode,
+    cardRefreshSwipe: Boolean,
+    cardDeleteSwipe: Boolean,
     onToggleSelection: (String) -> Unit,
     onRefreshLink: (LinkEntity) -> Unit,
     onImageFailed: (LinkEntity) -> Unit,
@@ -126,6 +130,9 @@ internal fun LinksGrid(
                 animateEntrance = animateInitialEntrance && index < 8,
                 showActions = !isSelectionMode,
                 isRefreshing = link.id in refreshingIds,
+                viewMode = viewMode,
+                cardRefreshSwipe = cardRefreshSwipe,
+                cardDeleteSwipe = cardDeleteSwipe,
                 onRefresh = { onRefreshLink(link) },
                 onDelete = { onRequestDelete(link) },
                 onImageFailed = { onImageFailed(link) },
