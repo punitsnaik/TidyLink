@@ -145,6 +145,7 @@ android {
             assets.srcDirs(files("$projectDir/schemas"))
         }
     }
+
 }
 
 ksp {
