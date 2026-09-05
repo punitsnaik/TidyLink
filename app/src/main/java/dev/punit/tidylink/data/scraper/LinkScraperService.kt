@@ -133,7 +133,8 @@ class LinkScraperService {
     private val oembedJson = Json { ignoreUnknownKeys = true }
 
     private fun fetch(url: String, userAgent: String): ScrapedData? = try {
-        val document = Jsoup.connect(url)
+        val requestUrl = redditScrapeUrl(url)
+        val document = Jsoup.connect(requestUrl)
             .userAgent(userAgent)
             .timeout(TIMEOUT_MS)
             .followRedirects(true)
@@ -166,7 +167,7 @@ class LinkScraperService {
             title = title.trim(),
             description = description.trim(),
             imageUrl = imageUrl,
-            resolvedUrl = resolved,
+            resolvedUrl = document.location().takeUnless { it == requestUrl }.orEmpty(),
             relatedLinks = extractRelatedLinks(document, url),
             fetched = true,
         )
@@ -184,6 +185,12 @@ class LinkScraperService {
         const val CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
     }
 }
+
+/** Reddit's standard page often returns an app shell; old Reddit keeps comment HTML server-rendered. */
+internal fun redditScrapeUrl(url: String): String = url.replaceFirst(
+    Regex("^(https?://)(?:www\\.|m\\.)?reddit\\.com(?=/|$)", RegexOption.IGNORE_CASE),
+    "$1old.reddit.com",
+)
 
 /**
  * Where a thumbnail might be published, in fallback order. og:image wins

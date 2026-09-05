@@ -19,14 +19,14 @@ class RelationCacheTest {
         assertEquals(2, calls)
     }
 
-    @Test fun addingProviderEvaluatesFallbackOnceAndEmptyDecisionStaysEmpty() = runBlocking {
+    @Test fun addingProviderKeepsContentVerifiedFallbackWhenSelectionIsEmpty() = runBlocking {
         var calls = 0
         val select: suspend (ScrapedData) -> List<RelatedLink>? = { calls++; emptyList() }
         val fallback = resolveRelationCache("[]", page, false, select = select)
         assertEquals(0, calls)
         val ai = resolveRelationCache(fallback, page, true, select = select)
         assertEquals(1, calls)
-        assertTrue(decodeRelationCache(ai)!!.links.isEmpty())
+        assertEquals(listOf(link.url), decodeRelationCache(ai)!!.links.map { it.url })
         assertEquals(ai, resolveRelationCache(ai, page, true, select = select))
         assertEquals(1, calls)
     }

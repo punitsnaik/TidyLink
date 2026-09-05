@@ -26,13 +26,7 @@ internal fun extractRelatedLinks(document: Document, sourceUrl: String): List<Re
     val content = document.clone()
     content.select("nav, footer, header, aside, [role=navigation], [role=contentinfo], script, style, " +
         ".recommendations, [data-testid=recommendations], .related-posts, .sponsored, #nav-belt, #nav-main").remove()
-    // Old Reddit nests all comments under a separate commentarea. Remove it
-    // before selecting bodies so neither anchors nor plain-text URLs leak in.
-    if (UrlCanonicalizer.hostMatches(sourceUrl, "reddit.com", "redd.it") ||
-        UrlCanonicalizer.hostMatches(document.location(), "reddit.com", "redd.it")) {
-        content.select(".commentarea, .thing.comment, [data-testid=comment], shreddit-comment").remove()
-    }
-    val bodies = content.select("article, [itemprop=articleBody], .markdown-body, [data-testid=post-text], .usertext-body, " +
+    val bodies = content.select("article, [itemprop=articleBody], .markdown-body, .usertext-body, [data-testid=post-text], " +
         "#productDescription, #feature-bullets, #technicalSpecifications_section_1")
     val roots = bodies.ifEmpty { content.select("main, [role=main]") }
     val anchors = roots.flatMap { root ->
