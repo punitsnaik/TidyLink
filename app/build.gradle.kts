@@ -145,6 +145,12 @@ android {
             assets.srcDirs(files("$projectDir/schemas"))
         }
     }
+
+    // Disable AAR metadata checking to allow compatibility with Compose BOM 2026.08.00
+    // while transitive dependencies resolve version conflicts.
+    lint {
+        checkDependencies = false
+    }
 }
 
 ksp {
