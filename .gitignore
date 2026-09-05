@@ -3,6 +3,8 @@
 /local.properties
 /.idea/
 .DS_Store
+.env
+.env.*
 /build
 # Every module's build dir, not just the root and app/. Gradle writes a
 # per-module `/build` .gitignore (see app/.gitignore), so a NEW module starts

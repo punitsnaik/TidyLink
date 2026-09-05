@@ -47,7 +47,7 @@ internal suspend fun resolveRelationCache(
     return encodeRelationCache(RelationCache(
         aiAttempted = configured,
         fingerprint = fingerprint,
-        links = (selected ?: fallback).map { it.copy(context = "") },
+        links = (selected?.ifEmpty { fallback } ?: fallback).map { it.copy(context = "") },
     ))
 }
 
