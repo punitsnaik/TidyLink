@@ -26,6 +26,12 @@ internal fun extractRelatedLinks(document: Document, sourceUrl: String): List<Re
     val content = document.clone()
     content.select("nav, footer, header, aside, [role=navigation], [role=contentinfo], script, style, " +
         ".recommendations, [data-testid=recommendations], .related-posts, .sponsored, #nav-belt, #nav-main").remove()
+    // Old Reddit nests all comments under a separate commentarea. Remove it
+    // before selecting bodies so neither anchors nor plain-text URLs leak in.
+    if (UrlCanonicalizer.hostMatches(sourceUrl, "reddit.com", "redd.it") ||
+        UrlCanonicalizer.hostMatches(document.location(), "reddit.com", "redd.it")) {
+        content.select(".commentarea, .thing.comment, [data-testid=comment], shreddit-comment").remove()
+    }
     val bodies = content.select("article, [itemprop=articleBody], .markdown-body, [data-testid=post-text], .usertext-body, " +
         "#productDescription, #feature-bullets, #technicalSpecifications_section_1")
     val roots = bodies.ifEmpty { content.select("main, [role=main]") }
@@ -61,7 +67,12 @@ internal fun filterRelatedLinks(candidates: List<RelatedLink>, sourceUrl: String
         if (!url.startsWith("http://") && !url.startsWith("https://")) return@mapNotNull null
         if (!UrlCanonicalizer.isValidHttpUrl(url)) return@mapNotNull null
         val uri = runCatching { URI(url) }.getOrNull() ?: return@mapNotNull null
-        if (NOISE.containsMatchIn(uri.rawPath.orEmpty())) return@mapNotNull null
+        if (NOISE.containsMatchIn(uri.rawPath.orEmpty()) ||
+            uri.query.orEmpty().split('&').any { parameter ->
+                val key = parameter.substringBefore('=').lowercase()
+                val value = parameter.substringAfter('=', "").lowercase()
+                NOISE.matches(key) || (key in setOf("action", "do", "view") && NOISE.matches(value))
+            }) return@mapNotNull null
         if (UrlCanonicalizer.dedupeKey(url) in excluded) return@mapNotNull null
         val title = candidate.title.trim().ifBlank { url.substringAfter("://") }.take(120)
         candidate.copy(url = UrlCanonicalizer.cleanUrl(url), title = title, role = inferRole(url, title))
@@ -95,3 +106,7 @@ private fun relationScore(link: RelatedLink): Int = when (link.role) {
     "Website" -> 50
     else -> 10
 }
+
+/** An empty fallback must never discard usable first-pass suggestions. */
+internal fun mergeRelatedLinks(first: ScrapedData, fallback: ScrapedData): List<RelatedLink> =
+    filterRelatedLinks(first.relatedLinks + fallback.relatedLinks, first.url, first.resolvedUrl)

@@ -534,37 +534,9 @@ class LinkViewModel(
         }
     }
 
-    /**
-     * Collapses duplicate copies of the same page into one row each.
-     *
-     * This already ran as the first step of [refreshAll]'s sweep, where it
-     * was invisible - nothing said it had happened, and it only ran at all
-     * when there were links left to scrape. Here it is its own action, with
-     * a count reported back.
-     */
+    /** Merging is unavailable until conflicting data and deletions are recoverable. */
     fun mergeDuplicates() {
-        if (isProcessing.value) return
-        viewModelScope.launch {
-            isProcessing.value = true
-            try {
-                val removed = repository.mergeDuplicates()
-                message.value = if (removed > 0) {
-                    UiMessage.Plural(
-                        R.plurals.msg_duplicates_merged,
-                        removed,
-                        listOf(removed),
-                    )
-                } else {
-                    UiMessage.Text(R.string.msg_duplicates_none)
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                message.value = UiMessage.Text(R.string.msg_duplicates_failed)
-            } finally {
-                isProcessing.value = false
-            }
-        }
+        message.value = UiMessage.Text(R.string.msg_duplicates_unavailable)
     }
 
     // --- AI providers (in-app API keys) --------------------------------------

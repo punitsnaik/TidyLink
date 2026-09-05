@@ -200,9 +200,6 @@ internal fun findDuplicateGroups(links: List<LinkEntity>): List<List<LinkEntity>
                 val k2 = UrlCanonicalizer.dedupeKey(link.resolvedUrl)
                 if (k2.isNotBlank()) add(k2)
             }
-            if (link.dedupeKey.isNotBlank()) {
-                add(link.dedupeKey)
-            }
         }
         for (key in keys) {
             val existingId = keyToLinkId[key]
@@ -248,9 +245,6 @@ internal fun countDuplicatesFromCandidates(candidates: List<DedupeCandidate>): I
             if (cand.resolvedUrl.isNotBlank()) {
                 val k2 = UrlCanonicalizer.dedupeKey(cand.resolvedUrl)
                 if (k2.isNotBlank()) add(k2)
-            }
-            if (cand.dedupeKey.isNotBlank()) {
-                add(cand.dedupeKey)
             }
         }
         for (key in keys) {
@@ -437,11 +431,7 @@ class LinkRepository(
     suspend fun purgeExpiredTrash() =
         linkDao.purgeTrashOlderThan(System.currentTimeMillis() - TRASH_RETENTION_MS)
 
-    /**
-     * Deleting from the library means trashing it. Note this is NOT what
-     * duplicate merging does - see [mergeDuplicates], which still hard
-     * deletes on purpose.
-     */
+    /** Deleting from the library means trashing it. */
     suspend fun deleteLink(id: String) = moveToTrash(listOf(id))
 
     suspend fun deleteLinks(ids: List<String>) = moveToTrash(ids)
@@ -483,21 +473,16 @@ class LinkRepository(
      * One-time upgrade helper (run at app start): fills the indexed
      * dedupeKey for rows saved before the column existed.
      */
-    suspend fun backfillDedupeKeys() {
-        val missing = linkDao.getMissingDedupeKeys()
-        if (missing.isNotEmpty()) {
-            linkDao.upsertAll(missing.map { it.copy(dedupeKey = UrlCanonicalizer.dedupeKey(it.resolvedUrl.ifBlank { it.url })) })
-        }
-        val toUpdate = linkDao.getAllOnce().filter {
-            it.resolvedUrl.isNotBlank() && it.dedupeKey != UrlCanonicalizer.dedupeKey(it.resolvedUrl)
-        }
-        if (toUpdate.isNotEmpty()) {
-            linkDao.upsertAll(toUpdate.map { it.copy(dedupeKey = UrlCanonicalizer.dedupeKey(it.resolvedUrl)) })
+    suspend fun backfillDedupeKeys() = saveMutex.withLock {
+        // Repair old destination-based keys without overwriting concurrent user edits.
+        for (link in linkDao.getAllOnce()) {
+            val updated = link.withDedupeKey()
+            if (updated != link) linkDao.replaceIfUnchanged(link, updated)
         }
     }
 
     private fun LinkEntity.withDedupeKey(): LinkEntity =
-        if (dedupeKey.isNotBlank()) this else copy(dedupeKey = UrlCanonicalizer.dedupeKey(resolvedUrl.ifBlank { url }))
+        copy(dedupeKey = UrlCanonicalizer.dedupeKey(url))
 
     /**
      * Full pipeline: Check DB -> Save placeholder -> Scrape -> AI Classify
@@ -545,32 +530,7 @@ class LinkRepository(
     private suspend fun enrich(entity: LinkEntity): LinkEntity {
         val scraped = scraper.scrapeMetadata(entity.url)
         val resolved = if (scraped.fetched) scraped.resolvedUrl else entity.resolvedUrl
-        val canonicalUrl = resolved.ifBlank { entity.url }
-        val canonicalKey = UrlCanonicalizer.dedupeKey(canonicalUrl)
-
-        // If another saved link already points to this canonical URL or destination,
-        // this placeholder is a duplicate discovered via redirection/enrichment.
-        val existingDuplicate = linkDao.getAllOnce().firstOrNull { existing ->
-            existing.id != entity.id && (
-                existing.url == canonicalUrl ||
-                UrlCanonicalizer.dedupeKey(existing.url) == canonicalKey ||
-                (existing.resolvedUrl.isNotBlank() && (
-                    existing.resolvedUrl == canonicalUrl ||
-                    UrlCanonicalizer.dedupeKey(existing.resolvedUrl) == canonicalKey
-                ))
-            )
-        }
-        if (existingDuplicate != null) {
-            linkDao.deleteByIds(listOf(entity.id))
-            val merged = mergeDuplicateGroup(listOf(existingDuplicate, entity.copy(
-                resolvedUrl = resolved,
-                dedupeKey = canonicalKey,
-                imageUrl = scraped.imageUrl,
-                description = scraped.description,
-            ))) ?: existingDuplicate
-            linkDao.upsert(merged.copy(modifiedAt = System.currentTimeMillis()))
-            return merged
-        }
+        val canonicalKey = UrlCanonicalizer.dedupeKey(entity.url)
 
         val existing = allCategoryNames()
         val classification =
@@ -665,6 +625,7 @@ class LinkRepository(
                 ?: existing.aiSummary,
             scrapeAttempts = existing.scrapeAttempts + 1,
             modifiedAt = System.currentTimeMillis(),
+            dedupeKey = UrlCanonicalizer.dedupeKey(existing.url),
             resolvedUrl = if (scraped.fetched) scraped.resolvedUrl else existing.resolvedUrl,
             relatedLinksJson = relations,
             relatedLinksScannedAt = System.currentTimeMillis(),
@@ -718,14 +679,12 @@ class LinkRepository(
 
     /**
      * Enrichment sweep, used by both the manual Refresh and
-     * [EnrichmentSweepWorker]: merges duplicate rows, scrapes every link
+     * [EnrichmentSweepWorker]: preserves rows and scrapes every link
      * that still needs it (never scraped, or image-less below the attempt
      * cap), then classifies everything scraped-but-uncategorized. Writes are
      * batched so the UI isn't invalidated once per link.
      */
     suspend fun refreshUnfetched(limit: Int = Int.MAX_VALUE): RefreshSummary = sweepMutex.withLock {
-        mergeDuplicates()
-
         val toScrape = linkDao.getScrapeCandidates(MAX_SCRAPE_ATTEMPTS, limit)
         coroutineScope {
             val semaphore = Semaphore(SCRAPE_CONCURRENCY)
@@ -745,6 +704,7 @@ class LinkRepository(
                             imageUrl = data.imageUrl ?: existing.imageUrl,
                             scrapeAttempts = existing.scrapeAttempts + 1,
                             modifiedAt = System.currentTimeMillis(),
+                            dedupeKey = UrlCanonicalizer.dedupeKey(existing.url),
                             resolvedUrl = if (data.fetched) data.resolvedUrl else existing.resolvedUrl,
                             relatedLinksJson = relations,
                             relatedLinksScannedAt = System.currentTimeMillis(),
@@ -764,6 +724,7 @@ class LinkRepository(
             linkDao.replaceIfUnchanged(existing, existing.copy(
                 relatedLinksJson = relations,
                 relatedLinksScannedAt = System.currentTimeMillis(),
+                dedupeKey = UrlCanonicalizer.dedupeKey(existing.url),
                 resolvedUrl = if (data.fetched) data.resolvedUrl else existing.resolvedUrl,
             ))
         }
@@ -813,29 +774,8 @@ class LinkRepository(
         return failed
     }
 
-    /**
-     * Merges rows that are the same page saved under URL variants (tracking
-     * params, www/no-www, http/https). Keeps the richest row, fills any gaps
-     * from the others, and deletes the rest.
-     *
-     * Returns how many rows were removed, so the Tools sheet can report the
-     * result of an explicit "merge duplicates" tap. Callers that run this as
-     * part of a wider sweep ignore it.
-     */
-    internal suspend fun mergeDuplicates(): Int {
-        var removed = 0
-        val all = linkDao.getAllOnce()
-        findDuplicateGroups(all).forEach { group ->
-            val merged = mergeDuplicateGroup(group) ?: return@forEach
-            // Bumped here, not inside mergeDuplicateGroup - that function is
-            // pure and unit-tested on exact output; "now" doesn't belong in it.
-            linkDao.upsert(merged.copy(modifiedAt = System.currentTimeMillis()))
-            val doomed = group.filter { it.id != merged.id }.map { it.id }
-            linkDao.deleteByIds(doomed)
-            removed += doomed.size
-        }
-        return removed
-    }
+    // Disabled until merging can preserve conflicts and propagate recoverable deletions.
+    internal suspend fun mergeDuplicates(): Int = 0
 
     /**
      * One-shot cleanup for a category list that has grown messy, in two
@@ -1041,21 +981,14 @@ class LinkRepository(
         imageUrl = link.imageUrl,
     )
 
-    /** Duplicate check that also catches tracking-param / www / scheme variants and resolved destinations. */
+    /** Saved-URL identity only; destinations are suggestions, never evidence to discard a save. */
     private suspend fun findExistingByUrl(cleanedUrl: String): LinkEntity? {
         linkDao.getByUrl(cleanedUrl)?.let { return it }
         val key = UrlCanonicalizer.dedupeKey(cleanedUrl)
-        linkDao.getByDedupeKey(key)?.let { return it }
-        linkDao.getByResolvedUrl(cleanedUrl)?.let { return it }
-        val all = linkDao.getAllOnce()
-        all.firstOrNull {
-            it.resolvedUrl.isNotBlank() && UrlCanonicalizer.dedupeKey(it.resolvedUrl) == key
+        // Stored legacy/peer keys may describe a destination, not the saved URL.
+        linkDao.getByDedupeKey(key)?.takeIf {
+            UrlCanonicalizer.dedupeKey(it.url) == key
         }?.let { return it }
-        // Legacy rows may not be indexed yet (backfill still running):
-        // fall back to the old table scan only while any remain.
-        if (linkDao.countMissingDedupeKeys() > 0) {
-            return linkDao.getMissingDedupeKeys().firstOrNull { UrlCanonicalizer.dedupeKey(it.url) == key }
-        }
         return null
     }
 

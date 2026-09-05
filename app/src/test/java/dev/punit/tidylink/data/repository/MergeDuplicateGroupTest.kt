@@ -181,4 +181,15 @@ class MergeDuplicateGroupTest {
         assertEquals(1, groups.size)
         assertEquals(2, groups[0].size)
     }
+
+    @Test
+    fun `stale stored destination does not bridge unrelated duplicate groups`() {
+        val old = link("old", url = "https://example.com/old")
+        val moved = link("moved", url = "https://example.com/share", resolvedUrl = "https://example.com/new",
+            dedupeKey = "example.com/old")
+        assertTrue(findDuplicateGroups(listOf(old, moved)).isEmpty())
+        assertEquals(0, countDuplicatesFromCandidates(listOf(old, moved).map {
+            dev.punit.tidylink.data.local.DedupeCandidate(it.id, it.url, it.dedupeKey, it.resolvedUrl)
+        }))
+    }
 }
