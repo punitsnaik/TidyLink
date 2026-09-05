@@ -36,14 +36,30 @@ import kotlinx.coroutines.withContext
  *   8. client -> server: Batch(changesSince(server's watermark))
  *      Each side applies the batch it RECEIVED with
  *      lastSyncAt = its OWN stored watermark for the peer.
- *   9. client -> server: Ack(server batch's sentAt)
- *  10. server -> client: Ack(client batch's sentAt)
+ *   9. client -> server: Ack(server batch's sentAt - 1)
+ *  10. server -> client: Ack(client batch's sentAt - 1)
  *
  * Only after seeing the peer's Ack does either side persist
- * setWatermark(peer, receivedBatch.sentAt). Any exception before that leaves
- * the watermark untouched - resuming just re-sends, and SyncMerger.apply is
- * idempotent, so that is safe.
+ * setWatermark(peer, receivedBatch.sentAt - 1). The -1 covers the watermark
+ * boundary: a row stamped in the same millisecond as sentAt but after the
+ * batch's SELECT ran would otherwise never sync (changedSince is strict >).
+ * Re-sending a boundary row next session is harmless - SyncMerger.apply is
+ * idempotent. Any exception before the Ack leaves the watermark untouched;
+ * resuming just re-sends, which is safe for the same reason.
+ *
+ * NOTE for the Android implementer (server side): serve()'s signature changed
+ * from serve(socket, pairingToken: ByteArray?) to
+ * serve(socket, pairingToken: (() -> ByteArray?)?). The provider is invoked -
+ * and must consume the one-time token atomically (getAndSet(null)) - only at
+ * the moment the PairHello branch actually runs, so the token dies at first
+ * successful MAC verification, not after the whole exchange. On MAC
+ * verification failure serve throws PairingMacMismatchException so the caller
+ * can restore the unconsumed token (a stranger's garbage must not burn the
+ * real pairing window). The wire script above is unchanged.
  */
+
+/** MAC check failed on a PairHello - the caller may restore the consumed token. */
+class PairingMacMismatchException : IOException("pairing token mismatch")
 
 /**
  * Client-side pairing credentials, decoded from the server's QR: the
@@ -62,12 +78,14 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
     private val random = SecureRandom()
 
     /**
-     * Server side of a socket: pairing (if [pairingToken] != null and the
-     * client sends PairHello) or reconnect, then the full exchange.
+     * Server side of a socket: pairing (if [pairingToken] yields a token and
+     * the client sends PairHello) or reconnect, then the full exchange.
+     * [pairingToken] is invoked exactly once, and only when the pairing
+     * branch runs - it should consume the one-time token atomically.
      * Returns the peer synced with; throws on any failure, in which case the
      * watermark was not advanced.
      */
-    suspend fun serve(socket: Socket, pairingToken: ByteArray?): Peer = withContext(Dispatchers.IO) {
+    suspend fun serve(socket: Socket, pairingToken: (() -> ByteArray?)?): Peer = withContext(Dispatchers.IO) {
         socket.soTimeout = TIMEOUT_MS
         val dataIn = DataInputStream(socket.getInputStream())
         val dataOut = DataOutputStream(socket.getOutputStream())
@@ -77,12 +95,12 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
         val clientNonce: ByteArray
         when (val hello = dataIn.readMsgFrame()) {
             is Msg.PairHello -> {
-                val token = pairingToken ?: throw IOException("pairing not enabled")
+                val token = pairingToken?.invoke() ?: throw IOException("pairing not enabled")
                 val expected = PairingCrypto.hmac(
                     token, hello.deviceId.encodeToByteArray() + hello.publicKey + hello.nonce
                 )
                 if (!MessageDigest.isEqual(expected, hello.mac)) {
-                    throw IOException("pairing token mismatch")
+                    throw PairingMacMismatchException()
                 }
                 val ownPub = PairingCrypto.publicBytes(identity.keyPair)
                 val mac = PairingCrypto.hmac(
@@ -184,7 +202,7 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
             val theirReq = expect<Msg.SyncRequest>(channel.receive())
             channel.send(encodeMsg(Msg.Batch(merger.changesSince(theirReq.watermark))))
             merger.apply(theirBatch, lastSyncAt = myWatermark)
-            channel.send(encodeMsg(Msg.Ack(theirBatch.sentAt)))
+            channel.send(encodeMsg(Msg.Ack(theirBatch.sentAt - 1)))
             expect<Msg.Ack>(channel.receive())
         } else {
             val theirReq = expect<Msg.SyncRequest>(channel.receive())
@@ -193,10 +211,11 @@ class SyncSession(val db: TidyLinkDb, val identity: DeviceIdentity) {
             theirBatch = expect<Msg.Batch>(channel.receive()).batch
             merger.apply(theirBatch, lastSyncAt = myWatermark)
             expect<Msg.Ack>(channel.receive())
-            channel.send(encodeMsg(Msg.Ack(theirBatch.sentAt)))
+            channel.send(encodeMsg(Msg.Ack(theirBatch.sentAt - 1)))
         }
-        // Both acks seen - only now does the watermark advance.
-        sync.setWatermark(SyncState(peer.deviceId, theirBatch.sentAt))
+        // Both acks seen - only now does the watermark advance. sentAt - 1,
+        // not sentAt: see the watermark-boundary note in the wire script.
+        sync.setWatermark(SyncState(peer.deviceId, theirBatch.sentAt - 1))
     }
 
     private inline fun <reified T : Msg> expect(bytes: ByteArray): T =

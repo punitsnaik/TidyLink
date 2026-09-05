@@ -1,5 +1,7 @@
 package dev.punit.tidylink.shared.sync
 
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
 import dev.punit.tidylink.shared.db.Link
 import dev.punit.tidylink.shared.db.TidyLinkDb
 import dev.punit.tidylink.shared.db.TrashedLink
@@ -34,7 +36,18 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
         trashed = db.syncDao().trashedSince(watermark).map { it.toPayload() },
     )
 
-    suspend fun apply(batch: SyncBatch, lastSyncAt: Long): ApplyResult {
+    // The whole batch is ONE transaction: restore (upsert + deleteTrash) and
+    // trash (insertTrash + delete) are two-statement row operations, and a
+    // crash between the statements would leave the id in both tables - the
+    // peer's re-send could then re-trash a restored edit. Plain DAO calls
+    // compose inside useWriterConnection (the connection rides the coroutine
+    // context); only @Transaction DAO methods would not.
+    suspend fun apply(batch: SyncBatch, lastSyncAt: Long): ApplyResult =
+        db.useWriterConnection { transactor ->
+            transactor.immediateTransaction { applyInTransaction(batch, lastSyncAt) }
+        }
+
+    private suspend fun applyInTransaction(batch: SyncBatch, lastSyncAt: Long): ApplyResult {
         val links = db.linkDao()
         val sync = db.syncDao()
         var upserted = 0
@@ -72,9 +85,12 @@ class SyncMerger(private val db: TidyLinkDb, private val selfDeviceId: String) {
             val tomb = sync.getTrash(p.id)
             if (tomb != null) {
                 // Rule 2: link vs local trash. Concurrent = edit wins
-                // regardless of timestamps; otherwise LWW.
+                // regardless of timestamps; otherwise LWW with the edit
+                // winning an exact modifiedAt == deletedAt tie (>=). Rule 3's
+                // strict > keeps the link on the same tie, so both devices
+                // converge on the link - the PRD's data-loss bias.
                 val concurrent = p.modifiedAt > lastSyncAt && tomb.deletedAt > lastSyncAt
-                if (concurrent || p.modifiedAt > tomb.deletedAt) {
+                if (concurrent || p.modifiedAt >= tomb.deletedAt) {
                     links.upsert(p.toLink())
                     sync.deleteTrash(p.id)
                     writtenByThisBatch += p.id

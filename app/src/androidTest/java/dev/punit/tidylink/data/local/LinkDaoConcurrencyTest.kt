@@ -57,4 +57,30 @@ class LinkDaoConcurrencyTest {
         assertFalse(dao.replaceIfUnchanged(userEdited, userEdited.copy(title = "Resurrected")))
         assertNull(dao.getById(original.id))
     }
+
+    @Test
+    fun destination_metadata_cannot_suppress_or_merge_a_different_bookmark() = runBlocking {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context
+        val repository = dev.punit.tidylink.data.repository.LinkRepository(
+            dao,
+            dev.punit.tidylink.data.scraper.LinkScraperService(),
+            dev.punit.tidylink.data.ai.AiCategorizationService(
+                dev.punit.tidylink.data.settings.LlmProviderStore(context)),
+            context,
+        )
+        val source = LinkEntity(id = "source", url = "https://example.com/source", title = "Mine",
+            description = "", imageUrl = null, category = "Other", aiSummary = "", note = "Keep this",
+            resolvedUrl = "https://other.example/target", dedupeKey = "other.example/target")
+        dao.upsert(source)
+        assertNull(repository.findSavedLink("https://other.example/target"))
+        repository.backfillDedupeKeys()
+        assertEquals("example.com/source", dao.getById(source.id)?.dedupeKey)
+        assertEquals("Keep this", dao.getById(source.id)?.note)
+        assertEquals(source.id, repository.findSavedLink("http://www.example.com/source?utm_source=test")?.id)
+        val target = source.copy(id = "target", url = "https://other.example/target", note = "Keep this too")
+        dao.upsert(target)
+        assertEquals(0, repository.mergeDuplicates())
+        assertEquals(2, dao.getAllOnce().size)
+        assertEquals("Keep this too", dao.getById(target.id)?.note)
+    }
 }

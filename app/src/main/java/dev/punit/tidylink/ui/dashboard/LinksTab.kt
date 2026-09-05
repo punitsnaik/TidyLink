@@ -1,11 +1,15 @@
 package dev.punit.tidylink.ui.dashboard
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,9 +19,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,9 +32,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.onSizeChanged
@@ -51,31 +61,13 @@ import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
+import dev.punit.tidylink.ui.theme.Motion
+import kotlinx.coroutines.launch
 
 /** Gutter shared by the grid's contentPadding and the empty-state header. */
 private val HEADER_GUTTER = 16.dp
 
-/** Height reserved for the floating glass search bar overlaying the grid. */
-internal val SEARCH_OVERLAY_HEIGHT = 72.dp
-
-/**
- * The Links tab: a Box where the link grid fills the space and scrolls
- * underneath a floating glass search bar owned by DashboardScreen. The grid
- * clears the bar with a measured top content padding (the bar's real height,
- * not an asserted constant), and its FIRST ITEM is the header (title row,
- * provider banner, search, result
- * count, category tiles). The progress bar is a separate overlay, pinned
- * just below the search bar on an opaque surface so it does not blend into
- * whatever the grid is scrolling underneath it.
- *
- * The header is a grid item on purpose, not a collapsing block above the
- * grid. It used to be an AnimatedVisibility driven by nested-scroll deltas,
- * which animated the header's HEIGHT - so it snapped away on its own clock
- * instead of following the finger, and forced the whole grid to re-measure
- * on every frame of the collapse. As an item it scrolls 1:1 with the
- * content, with no animation to stutter. Cost of the trade: the header
- * returns when you scroll back to the top, not on any small upward flick.
- */
+/** One in-grid header follows the content; no duplicate search field or hidden overlay. */
 @Composable
 internal fun LinksTab(
     viewModel: LinkViewModel,
@@ -200,6 +192,7 @@ internal fun LinksTab(
                 }
             }
         }
+
     }
 }
 

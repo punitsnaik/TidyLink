@@ -12,6 +12,14 @@ import kotlinx.coroutines.flow.Flow
 /** A category name together with how many links use it. */
 data class CategoryCount(val category: String, val count: Int)
 
+/** Lightweight projection for real-time duplicate detection across canonical/resolved URLs. */
+data class DedupeCandidate(
+    val id: String,
+    val url: String,
+    val dedupeKey: String,
+    val resolvedUrl: String,
+)
+
 @Dao
 interface LinkDao {
 
@@ -96,6 +104,14 @@ interface LinkDao {
     /** Indexed duplicate lookup - no table scan. */
     @Query("SELECT * FROM links WHERE dedupeKey = :key LIMIT 1")
     suspend fun getByDedupeKey(key: String): LinkEntity?
+
+    /** Lookup by resolved redirect/canonical URL. */
+    @Query("SELECT * FROM links WHERE resolvedUrl = :url LIMIT 1")
+    suspend fun getByResolvedUrl(url: String): LinkEntity?
+
+    /** Observe all links' duplicate-relevant keys to maintain duplicate counts reactively. */
+    @Query("SELECT id, url, dedupeKey, resolvedUrl FROM links")
+    fun observeDedupeCandidates(): Flow<List<DedupeCandidate>>
 
 
     /** Legacy rows saved before the dedupeKey column existed. */

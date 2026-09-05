@@ -143,4 +143,13 @@ class RelatedLinkExtractionTest {
         assertEquals(MAX_RELATED_CANDIDATES, links.size)
         assertEquals(links.size, links.map { it.dedupeKey }.distinct().size)
     }
+
+    @Test
+    fun `filters query actions without dropping content about login`() {
+        val urls = listOf("https://example.com/?action=login", "https://example.com/?cart=true",
+            "https://example.com/?action=%6cogin", "https://example.com/?q=login", "https://example.com/?id=42")
+        val links = urls.map { RelatedLink(it, "Article", "Related") }
+        assertEquals(listOf("https://example.com?q=login", "https://example.com?id=42"),
+            filterRelatedLinks(links, "https://example.com/source", "").map { it.url })
+    }
 }
