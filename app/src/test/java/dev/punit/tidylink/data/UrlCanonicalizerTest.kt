@@ -40,6 +40,14 @@ class UrlCanonicalizerTest {
     }
 
     @Test
+    fun `strips reddit tracking params`() {
+        assertEquals(
+            "https://www.reddit.com/r/HowToMen/comments/123/post",
+            UrlCanonicalizer.cleanUrl("https://www.reddit.com/r/HowToMen/comments/123/post?rdt=54321&sh=abcdef&context=3"),
+        )
+    }
+
+    @Test
     fun `drops plain anchor fragment`() {
         assertEquals(
             "https://example.com/page",

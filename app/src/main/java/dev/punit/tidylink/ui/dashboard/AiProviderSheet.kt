@@ -440,7 +440,6 @@ private fun ProviderCard(
                     IconButton(
                         onClick = onMoveUp,
                         enabled = index > 0,
-                        modifier = Modifier.size(28.dp),
                     ) {
                         Icon(
                             Icons.Default.KeyboardArrowUp,
@@ -450,7 +449,6 @@ private fun ProviderCard(
                     IconButton(
                         onClick = onMoveDown,
                         enabled = index < total - 1,
-                        modifier = Modifier.size(28.dp),
                     ) {
                         Icon(
                             Icons.Default.KeyboardArrowDown,

@@ -73,6 +73,7 @@ internal fun SettingsTab(
     onToggleAutoBackup: () -> Unit,
     onShowIntro: () -> Unit,
     onOpenRepo: () -> Unit,
+    onPairDevice: () -> Unit,
     updateState: UpdateState,
     onUpdateClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -175,6 +176,15 @@ internal fun SettingsTab(
                         onCheckedChange = { onToggleAutoBackup() },
                     )
                 },
+            )
+        }
+
+        SettingsSectionHeader(stringResource(R.string.settings_section_sync))
+        SettingsGroup {
+            SettingsItem(
+                title = stringResource(R.string.settings_pair_device_title),
+                subtitle = stringResource(R.string.settings_pair_device_subtitle),
+                onClick = onPairDevice,
             )
         }
 

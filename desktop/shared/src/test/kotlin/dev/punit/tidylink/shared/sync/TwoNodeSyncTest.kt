@@ -75,7 +75,9 @@ class TwoNodeSyncTest {
     ): Pair<Result<Peer>, Result<Peer>> = runBlocking {
         ServerSocket(0).use { ss ->
             val server = async(Dispatchers.IO) {
-                runCatching { ss.accept().use { sessionA.serve(it, serveToken) } }
+                // serve takes a token PROVIDER now; a plain closure stands in
+                // for SyncServer's consume-on-first-use AtomicReference.
+                runCatching { ss.accept().use { sessionA.serve(it, serveToken?.let { t -> { t } }) } }
             }
             val client = async(Dispatchers.IO) {
                 runCatching { clientSocket(ss.localPort).use { sessionB.connect(it, clientPeer, pairing) } }

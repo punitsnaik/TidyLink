@@ -6,6 +6,11 @@
          system installer. The user still confirms every install, and Android
          rejects any APK whose signing cert differs from the installed one. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Device sync (Settings -> Pair device): scanning the Mac app's QR
+         code, and same-LAN discovery of a paired Mac for "Sync now". -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:name=".TidyLinkApplication"
