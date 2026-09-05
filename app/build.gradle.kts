@@ -146,12 +146,6 @@ android {
         }
     }
 
-    // Disable AAR metadata checking to allow compatibility with Compose BOM 2026.08.00
-    // while transitive dependencies resolve version conflicts.
-    lint {
-        checkDependencies = false
-        ignoreAllRawMaterialAttributes = true
-    }
 }
 
 ksp {
