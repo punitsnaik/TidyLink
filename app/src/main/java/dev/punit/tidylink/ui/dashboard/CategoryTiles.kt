@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -62,6 +63,18 @@ import dev.punit.tidylink.data.repository.CategoryNames
 
 private const val MAX_VISIBLE_CATEGORY_TILES = 8
 
+internal data class CategoryColors(val container: Color, val content: Color)
+
+@Composable
+internal fun categoryColors(category: String): CategoryColors {
+    val hue = (CategoryNames.key(category).hashCode().and(Int.MAX_VALUE) % 12) * 30f
+    val darkTheme = isSystemInDarkTheme()
+    return CategoryColors(
+        container = Color.hsl(hue, 0.45f, if (darkTheme) 0.22f else 0.88f),
+        content = if (darkTheme) Color(0xFFF4F4F4) else Color(0xFF1B1B1B),
+    )
+}
+
 /**
  * Small filled category chips; "More" opens the full list.
  */
@@ -86,6 +99,7 @@ internal fun CategoryTiles(
         item {
             CategoryTile(
                 label = stringResource(R.string.chip_all),
+                category = null,
                 selected = selected == null,
                 onClick = { onSelect(null) },
             )
@@ -95,6 +109,7 @@ internal fun CategoryTiles(
             item {
                 CategoryTile(
                     label = selected,
+                    category = selected,
                     selected = true,
                     onClick = { onSelect(null) },
                 )
@@ -103,6 +118,7 @@ internal fun CategoryTiles(
         items(topCategories, key = { it.category }) { cat ->
             CategoryTile(
                 label = cat.category,
+                category = cat.category,
                 selected = selected == cat.category,
                 onClick = { onSelect(if (selected == cat.category) null else cat.category) },
             )
@@ -111,6 +127,7 @@ internal fun CategoryTiles(
             item {
                 CategoryTile(
                     label = stringResource(R.string.tile_more),
+                    category = null,
                     selected = false,
                     onClick = { showAllCategories = true },
                 )
@@ -162,18 +179,20 @@ internal fun CategoryTiles(
 @Composable
 private fun CategoryTile(
     label: String,
+    category: String?,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val colors = if (category == null) null else categoryColors(category)
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(8.dp),
-        color = if (selected) {
+        color = colors?.container ?: if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
             MaterialTheme.colorScheme.surfaceContainerHighest
         },
-        contentColor = if (selected) {
+        contentColor = colors?.content ?: if (selected) {
             MaterialTheme.colorScheme.onSecondaryContainer
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
