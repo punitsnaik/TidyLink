@@ -478,7 +478,6 @@ fun DashboardScreen(
                             onRequestDelete = { link ->
                                 pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
                             },
-                            hazeState = hazeState,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding),
@@ -535,14 +534,7 @@ fun DashboardScreen(
                                     action = R.string.tidy_confirm_action,
                                 ) { viewModel.tidyCategories() }
                             },
-                            onMergeDuplicates = {
-                                pendingConfirm = PendingConfirm(
-                                    title = R.string.dialog_duplicates_title,
-                                    body = R.plurals.dialog_duplicates_body,
-                                    action = R.string.dialog_duplicates_confirm,
-                                    count = uiState.duplicateCount,
-                                ) { viewModel.mergeDuplicates() }
-                            },
+                            onMergeDuplicates = viewModel::mergeDuplicates,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding),

@@ -157,7 +157,13 @@ class LayoutRegressionTest {
         kotlinx.coroutines.runBlocking { dao.upsertAll(listOf(parent, child)) }
         fun nodes() = descendants(instrumentation.uiAutomation.rootInActiveWindow).toList()
         fun clickText(text: String) {
-            awaitCondition("Missing $text") { nodes().any { it.text?.toString() == text } }
+            try {
+                awaitCondition("Missing $text") { nodes().any { it.text?.toString() == text } }
+            } catch (failure: AssertionError) {
+                val stored = kotlinx.coroutines.runBlocking { dao.getById(parent.id) }
+                throw AssertionError("$text not visible; parent still has expected title=${stored?.title == parent.title}, " +
+                    "description=${stored?.description == parent.description}, scraped=${stored?.scrapeAttempts}", failure)
+            }
             assertTrue(clickableAncestor(nodes().first { it.text?.toString() == text })
                 .performAction(AccessibilityNodeInfo.ACTION_CLICK))
         }

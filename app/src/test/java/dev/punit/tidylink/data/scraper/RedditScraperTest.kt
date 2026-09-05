@@ -44,5 +44,28 @@ class RedditScraperTest {
         val links = extractRelatedLinks(doc, postUrl)
         assertEquals(listOf("https://example.com/useful"), links.map { it.url })
     }
+
+    @Test
+    fun `full reddit page excludes comment anchors and plain text URLs`() {
+        val url = "https://old.reddit.com/r/test/comments/123/post"
+        val doc = Jsoup.parse("""
+            <div class="thing link"><div class="usertext-body">
+              <a href="https://example.com/post-resource">Resource</a>
+            </div></div>
+            <div class="commentarea"><div class="thing comment"><div class="usertext-body">
+              <a href="https://example.com/comment-link">Comment</a>
+              https://example.com/comment-text
+            </div></div></div>
+        """.trimIndent(), url)
+        assertEquals(listOf("https://example.com/post-resource"), extractRelatedLinks(doc, url).map { it.url })
+    }
+
+    @Test
+    fun `empty fallback preserves first pass and successful fallback is deduplicated`() {
+        val link = RelatedLink("https://example.com/resource", "Resource", "Related", contentEvidence = true)
+        val first = ScrapedData("https://reddit.com/r/test/comments/123", "Post", "", null, relatedLinks = listOf(link))
+        assertEquals(listOf(link), mergeRelatedLinks(first, first.copy(relatedLinks = emptyList())))
+        assertEquals(listOf(link), mergeRelatedLinks(first, first))
+    }
 }
 

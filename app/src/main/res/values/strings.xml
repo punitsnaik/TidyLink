@@ -285,6 +285,7 @@
         <item quantity="one">Merged %d duplicate link</item>
         <item quantity="other">Merged %d duplicate links</item>
     </plurals>
+    <string name="msg_duplicates_unavailable">Merging is temporarily unavailable to protect your saved details. Both copies have been kept.</string>
     <string name="msg_duplicates_none">No duplicates to merge</string>
     <string name="msg_duplicates_failed">Couldn\'t merge duplicates</string>
     <plurals name="msg_imported_bookmarks">

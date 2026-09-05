@@ -78,7 +78,7 @@ class LinkScraperService {
                     .replace("://reddit.com", "://old.reddit.com")
                 val oldRedditData = fetch(oldRedditUrl, CRAWLER_UA)
                 if (oldRedditData != null) {
-                    return@withContext best.copy(relatedLinks = oldRedditData.relatedLinks)
+                    return@withContext best.copy(relatedLinks = mergeRelatedLinks(best, oldRedditData))
                 }
             }
         }
@@ -156,14 +156,10 @@ class LinkScraperService {
 
         val imageUrl = extractImageUrl(document)
 
-        val canonical = document.selectFirst("link[rel=canonical]")?.absUrl("href")?.takeIf { it.isNotBlank() }
-            ?: meta("meta[property=og:url]")?.takeIf { it.isNotBlank() }
-
-        val resolved = when {
-            document.location().isNotBlank() && document.location() != url -> document.location()
-            !canonical.isNullOrBlank() && canonical != url && UrlCanonicalizer.isValidHttpUrl(canonical) -> canonical
-            else -> ""
-        }
+        // Publisher canonical/og:url metadata is not an observed redirect destination.
+        val resolved = document.location().takeIf {
+            it != url && UrlCanonicalizer.isValidHttpUrl(it)
+        }.orEmpty()
 
         ScrapedData(
             url = url,

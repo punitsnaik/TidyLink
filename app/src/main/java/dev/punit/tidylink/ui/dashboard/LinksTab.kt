@@ -38,11 +38,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
@@ -58,7 +56,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
-import dev.chrisbanes.haze.HazeState
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.settings.LibraryViewMode
@@ -70,27 +67,7 @@ import kotlinx.coroutines.launch
 /** Gutter shared by the grid's contentPadding and the empty-state header. */
 private val HEADER_GUTTER = 16.dp
 
-/** Height reserved for the floating glass search bar overlaying the grid. */
-internal val SEARCH_OVERLAY_HEIGHT = 72.dp
-
-/**
- * The Links tab: a Box where the link grid fills the space and scrolls
- * underneath a floating glass search bar owned by DashboardScreen. The grid
- * clears the bar with a measured top content padding (the bar's real height,
- * not an asserted constant), and its FIRST ITEM is the header (title row,
- * provider banner, search, result
- * count, category tiles). The progress bar is a separate overlay, pinned
- * just below the search bar on an opaque surface so it does not blend into
- * whatever the grid is scrolling underneath it.
- *
- * The header is a grid item on purpose, not a collapsing block above the
- * grid. It used to be an AnimatedVisibility driven by nested-scroll deltas,
- * which animated the header's HEIGHT - so it snapped away on its own clock
- * instead of following the finger, and forced the whole grid to re-measure
- * on every frame of the collapse. As an item it scrolls 1:1 with the
- * content, with no animation to stutter. Cost of the trade: the header
- * returns when you scroll back to the top, not on any small upward flick.
- */
+/** One in-grid header follows the content; no duplicate search field or hidden overlay. */
 @Composable
 internal fun LinksTab(
     viewModel: LinkViewModel,
@@ -109,7 +86,6 @@ internal fun LinksTab(
     onShowAiProviders: () -> Unit,
     onOpenDetail: (String) -> Unit,
     onRequestDelete: (LinkEntity) -> Unit,
-    hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
     // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
@@ -118,80 +94,24 @@ internal fun LinksTab(
     val header: (@Composable () -> Unit)? = if (uiState.isSelectionMode) {
         null
     } else {
-        remember(
-            query,
-            hasProviders,
-            providerBannerDismissed,
-            viewMode,
-            uiState.categories,
-            uiState.selectedCategory,
-        ) {
-            {
-                LinksHeader(
-                    viewModel = viewModel,
-                    uiState = uiState,
-                    query = query,
-                    lazyLinks = lazyLinks,
-                    hasProviders = hasProviders,
-                    providerBannerDismissed = providerBannerDismissed,
-                    onDismissProviderBanner = onDismissProviderBanner,
-                    onShowSortSheet = onShowSortSheet,
-                    viewMode = viewMode,
-                    onToggleViewMode = onToggleViewMode,
-                    onShowAiProviders = onShowAiProviders,
-                )
-            }
+        {
+            LinksHeader(
+                viewModel = viewModel,
+                uiState = uiState,
+                query = query,
+                lazyLinks = lazyLinks,
+                hasProviders = hasProviders,
+                providerBannerDismissed = providerBannerDismissed,
+                onDismissProviderBanner = onDismissProviderBanner,
+                onShowSortSheet = onShowSortSheet,
+                viewMode = viewMode,
+                onToggleViewMode = onToggleViewMode,
+                onShowAiProviders = onShowAiProviders,
+            )
         }
     }
 
-    // Track whether the in-grid header item has scrolled off screen.
-    val headerScrolledAway by remember {
-        derivedStateOf { gridState.firstVisibleItemIndex > 0 }
-    }
-
-    // Track scroll direction to show/hide the floating overlay header.
-    var isOverlayVisible by remember { mutableStateOf(false) }
-
-    // NestedScrollConnection that observes scroll direction without consuming any scroll.
-    val nestedScrollConnection = remember {
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
-            override fun onPostScroll(
-                consumed: androidx.compose.ui.geometry.Offset,
-                available: androidx.compose.ui.geometry.Offset,
-                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
-            ): androidx.compose.ui.geometry.Offset {
-                val delta = if (consumed.y != 0f) consumed.y else available.y
-                if (delta < -12f) {
-                    // Scrolling DOWN (content moving up) -> hide header
-                    if (isOverlayVisible) isOverlayVisible = false
-                } else if (delta > 12f) {
-                    // Scrolling UP (content moving down) -> reveal header
-                    if (!isOverlayVisible) isOverlayVisible = true
-                }
-                return androidx.compose.ui.geometry.Offset.Zero
-            }
-        }
-    }
-
-    val showOverlay = headerScrolledAway && isOverlayVisible && !uiState.isSelectionMode
-
-    val progress by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (showOverlay) 1f else 0f,
-        animationSpec = if (showOverlay) {
-            androidx.compose.animation.core.tween(
-                durationMillis = Motion.DURATION_MEDIUM,
-                easing = Motion.EnterEasing,
-            )
-        } else {
-            androidx.compose.animation.core.tween(
-                durationMillis = 200,
-                easing = Motion.ExitEasing,
-            )
-        },
-        label = "headerOverlayAnimation",
-    )
-
-    Box(modifier = modifier.nestedScroll(nestedScrollConnection)) {
+    Box(modifier = modifier) {
         val density = LocalDensity.current
         var progressBandHeight by remember { mutableStateOf(0.dp) }
         val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
@@ -273,31 +193,6 @@ internal fun LinksTab(
             }
         }
 
-        // Floating overlay header: smoothly slides down into view from the top
-        // when the user flicks upward after the real in-grid header has scrolled
-        // off-screen, and slides back out of view when scrolling down.
-        // Handled via graphicsLayer (GPU translation + alpha) with zero layout passes
-        // for a butter-smooth 60/120fps animation.
-        if (header != null) {
-            androidx.compose.material3.Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer {
-                        translationY = (progress - 1f) * size.height
-                        alpha = progress
-                    },
-                color = MaterialTheme.colorScheme.background,
-                shadowElevation = if (progress > 0.05f) 4.dp else 0.dp,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(horizontal = HEADER_GUTTER)
-                        .padding(top = 8.dp, bottom = 4.dp),
-                ) {
-                    header()
-                }
-            }
-        }
     }
 }
 
