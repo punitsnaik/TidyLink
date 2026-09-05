@@ -150,6 +150,7 @@ android {
     // while transitive dependencies resolve version conflicts.
     lint {
         checkDependencies = false
+        ignoreAllRawMaterialAttributes = true
     }
 }
 
