@@ -8,6 +8,15 @@ import org.junit.Test
 class RelatedLinkExtractionTest {
 
     @Test
+    fun `reddit comment pages use the server rendered host`() {
+        assertEquals(
+            "https://old.reddit.com/r/android/comments/example/post/",
+            redditScrapeUrl("https://www.reddit.com/r/android/comments/example/post/"),
+        )
+        assertEquals("https://example.com/post", redditScrapeUrl("https://example.com/post"))
+    }
+
+    @Test
     fun `repository README beats GitHub global marketing`() {
         val doc = Jsoup.parse("""
             <div class="Header"><a href="https://github.com/features/copilot">Copilot</a></div>
@@ -66,6 +75,19 @@ class RelatedLinkExtractionTest {
             "https://pll.harvard.edu/course/data-science-machine-learning",
             "https://pll.harvard.edu/course/cs50?delta=0",
         ), extractRelatedLinks(document, document.location()).map { it.url })
+    }
+
+    @Test
+    fun `reddit comment links are discovered from the comment body`() {
+        val document = Jsoup.parse("""
+            <div class="usertext-body may-blank-within md-container">
+                <div class="md"><p>See <a href="https://developer.android.com/topic/libraries/architecture/workmanager">WorkManager docs</a>.</p></div>
+            </div>
+            <footer><a href="https://www.reddit.com/policies/privacy-policy">Privacy</a></footer>
+        """.trimIndent(), "https://www.reddit.com/r/android/comments/example/post/")
+
+        assertEquals(listOf("https://developer.android.com/topic/libraries/architecture/workmanager"),
+            extractRelatedLinks(document, document.location()).map { it.url })
     }
 
     @Test
