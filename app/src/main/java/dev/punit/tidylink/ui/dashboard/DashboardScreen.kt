@@ -156,7 +156,6 @@ fun DashboardScreen(
     var showBookmarkImport by rememberSaveable { mutableStateOf(false) }
     var showTrash by rememberSaveable { mutableStateOf(false) }
     // Device sync, same full-page convention as Trash - see PairDeviceScreen's KDoc.
-    var showPairDevice by rememberSaveable { mutableStateOf(false) }
     var providerBannerDismissed by rememberSaveable { mutableStateOf(false) }
     // Ids (not entities) survive rotation/process death; the live entity is
     // observed from the DB below.
@@ -534,7 +533,21 @@ fun DashboardScreen(
                                     action = R.string.tidy_confirm_action,
                                 ) { viewModel.tidyCategories() }
                             },
-                            onMergeDuplicates = viewModel::mergeDuplicates,
+                            onMergeDuplicates = {
+                                pendingConfirm = PendingConfirm(
+                                    title = R.string.dialog_duplicates_title,
+                                    body = R.plurals.dialog_duplicates_body,
+                                    action = R.string.dialog_duplicates_confirm,
+                                    count = uiState.duplicateCount,
+                                ) { viewModel.mergeDuplicates() }
+                            },
+                            onEmptyTrash = {
+                                pendingConfirm = PendingConfirm(
+                                    title = R.string.dialog_empty_trash_title,
+                                    body = R.string.dialog_empty_trash_body,
+                                    action = R.string.action_empty_trash,
+                                ) { viewModel.emptyTrash() }
+                            },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding),
@@ -574,7 +587,6 @@ fun DashboardScreen(
                             },
                             onShowIntro = viewModel::replayIntro,
                             onOpenRepo = { openLink(context, REPO_URL) },
-                            onPairDevice = { showPairDevice = true },
                             updateState = updateState,
                             onUpdateClick = {
                                 when (val state = updateState) {
@@ -639,18 +651,6 @@ fun DashboardScreen(
                 )
             }
 
-            AnimatedVisibility(
-                visible = showPairDevice,
-                enter = fadeIn(tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing)),
-                exit = fadeOut(tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                PairDeviceScreen(
-                    onScan = viewModel::pairFromQr,
-                    onSyncAll = viewModel::syncAllPeers,
-                    onClose = { showPairDevice = false },
-                )
-            }
         }
     }
 
