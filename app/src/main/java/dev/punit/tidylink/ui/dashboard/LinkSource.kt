@@ -54,6 +54,10 @@ internal fun domainOf(url: String): String =
 internal fun faviconUrl(url: String): String =
     "https://www.google.com/s2/favicons?domain=${domainOf(url)}&sz=128"
 
+/** High-resolution brand logo via Clearbit Logo API. */
+internal fun brandLogoUrl(url: String): String =
+    "https://logo.clearbit.com/${domainOf(url)}"
+
 /** Human-friendly title, guarding against blank / "undefined" scrapes. */
 internal fun displayTitle(title: String, url: String): String {
     val t = title.trim()

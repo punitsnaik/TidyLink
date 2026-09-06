@@ -142,6 +142,36 @@
         <item quantity="one">%1$d deleted link, kept for 90 days</item>
         <item quantity="other">%1$d deleted links, kept for 90 days</item>
     </plurals>
+
+    <!-- Public APIs tools -->
+    <string name="tools_dead_links_title">Check broken links</string>
+    <string name="tools_dead_links_subtitle">Scan library for 404s and find Wayback Machine snapshots</string>
+    <string name="tools_dead_links_busy">Checking links (%1$d of %2$d)…</string>
+    <string name="tools_safety_title">Scan link safety</string>
+    <string name="tools_safety_subtitle">Check links against abuse.ch URLhaus malware database</string>
+    <string name="tools_safety_busy">Scanning links (%1$d of %2$d)…</string>
+    <string name="tools_github_title">Enrich GitHub repositories</string>
+    <string name="tools_github_subtitle">Fetch stars, language, and details for GitHub links</string>
+    <string name="tools_github_busy">Enriching GitHub links…</string>
+    <string name="action_reader_mode">Reader view</string>
+    <string name="action_wayback_machine">Wayback Machine</string>
+    <string name="action_check_safety">Check safety</string>
+    <string name="dialog_dead_links_title">Broken links scan</string>
+    <string name="dialog_dead_links_empty">No broken links found. All links are accessible.</string>
+    <string name="dialog_safety_title">Security scan results</string>
+    <string name="dialog_safety_empty">No threats detected. All links look safe.</string>
+    <string name="action_open_archive">Open snapshot</string>
+    <string name="action_use_archive">Use archive URL</string>
+    <string name="action_save_to_wayback">Save to Wayback</string>
+    <string name="msg_github_enriched">Enriched %1$d GitHub repositories</string>
+    <string name="msg_github_no_links">No GitHub repositories found in library</string>
+    <string name="reader_reading_time">%1$d min read</string>
+    <string name="reader_byline">By %1$s</string>
+    <string name="reader_failed">Could not extract readable article for this link.</string>
+    <string name="safety_safe">Safe (not flagged on URLhaus)</string>
+    <string name="safety_threat_detected">Threat detected: %1$s</string>
+    <string name="wayback_available">Snapshot available (%1$s)</string>
+    <string name="wayback_not_available">No archive snapshot found</string>
     <string name="cd_back">Back</string>
     <string name="sheet_trash_title">Trash</string>
     <string name="sheet_trash_subtitle">Deleted links are kept for 90 days</string>
