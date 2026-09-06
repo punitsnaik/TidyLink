@@ -2,6 +2,7 @@ package dev.punit.tidylink.ui.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Favorite
@@ -34,6 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -65,12 +68,21 @@ private const val MAX_VISIBLE_CATEGORY_TILES = 8
 
 internal data class CategoryColors(val container: Color, val content: Color)
 
+internal fun categoryHueMap(categories: List<String>): Map<String, Int> {
+    val used = mutableSetOf<Int>()
+    return categories.distinct().sortedBy(CategoryNames::key).associateWith { category ->
+        var hue = CategoryNames.key(category).hashCode().and(Int.MAX_VALUE) % 360
+        while (!used.add(hue)) hue = (hue + 137) % 360
+        hue
+    }
+}
+
 @Composable
-internal fun categoryColors(category: String): CategoryColors {
-    val hue = (CategoryNames.key(category).hashCode().and(Int.MAX_VALUE) % 12) * 30f
+internal fun categoryColors(category: String, hue: Int? = null): CategoryColors {
+    val resolvedHue = hue ?: CategoryNames.key(category).hashCode().and(Int.MAX_VALUE) % 360
     val darkTheme = isSystemInDarkTheme()
     return CategoryColors(
-        container = Color.hsl(hue, 0.45f, if (darkTheme) 0.22f else 0.88f),
+        container = Color.hsl(resolvedHue.toFloat(), 0.45f, if (darkTheme) 0.22f else 0.88f),
         content = if (darkTheme) Color(0xFFF4F4F4) else Color(0xFF1B1B1B),
     )
 }
@@ -88,6 +100,11 @@ internal fun CategoryTiles(
 ) {
     var showAllCategories by rememberSaveable { mutableStateOf(false) }
     val topCategories = categories.take(MAX_VISIBLE_CATEGORY_TILES)
+    val visibleNames = buildList {
+        selected?.let(::add)
+        addAll(topCategories.map { it.category })
+    }
+    val hues = categoryHueMap(visibleNames)
     val hasOverflow = categories.size > topCategories.size
 
     // No contentPadding: the caller owns the horizontal gutter (inside the
@@ -110,6 +127,7 @@ internal fun CategoryTiles(
                 CategoryTile(
                     label = selected,
                     category = selected,
+                    hue = hues[selected],
                     selected = true,
                     onClick = { onSelect(null) },
                 )
@@ -119,6 +137,7 @@ internal fun CategoryTiles(
             CategoryTile(
                 label = cat.category,
                 category = cat.category,
+                hue = hues[cat.category],
                 selected = selected == cat.category,
                 onClick = { onSelect(if (selected == cat.category) null else cat.category) },
             )
@@ -180,10 +199,11 @@ internal fun CategoryTiles(
 private fun CategoryTile(
     label: String,
     category: String?,
+    hue: Int? = null,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = if (category == null) null else categoryColors(category)
+    val colors = if (category == null) null else categoryColors(category, hue)
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(8.dp),
@@ -197,14 +217,19 @@ private fun CategoryTile(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier.semantics { this.selected = selected },
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .widthIn(max = 160.dp)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
+            if (selected) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.size(4.dp))
+            }
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,

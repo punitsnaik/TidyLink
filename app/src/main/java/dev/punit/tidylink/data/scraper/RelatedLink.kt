@@ -26,12 +26,8 @@ internal fun extractRelatedLinks(document: Document, sourceUrl: String): List<Re
     val content = document.clone()
     content.select("nav, footer, header, aside, [role=navigation], [role=contentinfo], script, style, " +
         ".recommendations, [data-testid=recommendations], .related-posts, .sponsored, #nav-belt, #nav-main").remove()
-    // Old Reddit nests all comments under a separate commentarea. Remove it
-    // before selecting bodies so neither anchors nor plain-text URLs leak in.
-    if (UrlCanonicalizer.hostMatches(sourceUrl, "reddit.com", "redd.it") ||
-        UrlCanonicalizer.hostMatches(document.location(), "reddit.com", "redd.it")) {
-        content.select(".commentarea, .thing.comment, [data-testid=comment], shreddit-comment").remove()
-    }
+    val commentLinks = extractPublicCommentLinks(document, sourceUrl)
+    content.select(PUBLIC_COMMENT_SELECTORS).remove()
     val bodies = content.select("article, [itemprop=articleBody], .markdown-body, .usertext-body, [data-testid=post-text], " +
         "#productDescription, #feature-bullets, #technicalSpecifications_section_1")
     val roots = bodies.ifEmpty { content.select("main, [role=main]") }
@@ -42,7 +38,28 @@ internal fun extractRelatedLinks(document: Document, sourceUrl: String): List<Re
     }
     val text = content.select("meta[property=og:description], meta[name=description], meta[name=twitter:description]")
         .joinToString("\n") { it.attr("content") }
-    return filterRelatedLinks(anchors + textLinks(text), sourceUrl, document.location())
+    return filterRelatedLinks(anchors + commentLinks + textLinks(text), sourceUrl, document.location())
+}
+
+private const val PUBLIC_COMMENT_SELECTORS =
+    ".thing.comment, shreddit-comment, [data-testid=comment], ytd-comment-thread-renderer, article ul li[role=button]"
+
+/** Public response only: pinned/stickied first, then the first five comments in page order. */
+private fun extractPublicCommentLinks(document: Document, sourceUrl: String): List<RelatedLink> {
+    val supported = listOf("reddit.com", "redd.it", "youtube.com", "youtu.be", "instagram.com")
+        .any { UrlCanonicalizer.hostMatches(sourceUrl, it) || UrlCanonicalizer.hostMatches(document.location(), it) }
+    if (!supported) return emptyList()
+    val comments = document.select(PUBLIC_COMMENT_SELECTORS).distinct()
+        .sortedByDescending { comment ->
+            val marker = "${comment.className()} ${comment.attr("data-testid")} ${comment.attr("aria-label")}".lowercase()
+            "stickied" in marker || "pinned" in marker
+        }
+        .take(5)
+    return comments.flatMap { comment ->
+        comment.select("a[href]").map { anchor ->
+            RelatedLink(anchor.absUrl("href"), anchor.text(), "Related", comment.text().take(300), true)
+        } + textLinks(comment.text())
+    }
 }
 
 /** Old arrays lack provenance: only explicit description URLs are safe until background re-scan. */

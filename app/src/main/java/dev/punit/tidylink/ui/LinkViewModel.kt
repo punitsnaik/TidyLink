@@ -534,9 +534,24 @@ class LinkViewModel(
         }
     }
 
-    /** Merging is unavailable until conflicting data and deletions are recoverable. */
     fun mergeDuplicates() {
-        message.value = UiMessage.Text(R.string.msg_duplicates_unavailable)
+        viewModelScope.launch {
+            isProcessing.value = true
+            try {
+                val merged = repository.mergeDuplicates()
+                message.value = if (merged == 0) {
+                    UiMessage.Text(R.string.msg_duplicates_none)
+                } else {
+                    UiMessage.Plural(R.plurals.msg_duplicates_merged, merged, listOf(merged))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                message.value = UiMessage.Text(R.string.msg_duplicates_failed)
+            } finally {
+                isProcessing.value = false
+            }
+        }
     }
 
     // --- AI providers (in-app API keys) --------------------------------------

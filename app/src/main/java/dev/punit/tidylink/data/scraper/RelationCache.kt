@@ -27,6 +27,15 @@ internal fun decodeRelationCache(raw: String): RelationCache? = runCatching {
 
 internal fun encodeRelationCache(cache: RelationCache): String = cacheJson.encodeToString(cache)
 
+internal fun mergeRelationCaches(raw: List<String>): String {
+    val caches = raw.mapNotNull(::decodeRelationCache)
+    if (caches.isEmpty()) return raw.firstOrNull { it != "[]" } ?: "[]"
+    return encodeRelationCache(RelationCache(
+        aiAttempted = caches.any { it.aiAttempted },
+        links = caches.flatMap { it.links }.distinctBy { it.dedupeKey }.take(MAX_USEFUL_LINKS),
+    ))
+}
+
 /** A failed attempt is cached too; explicit refresh retries, list rendering never spends quota. */
 internal suspend fun resolveRelationCache(
     previous: String,

@@ -23,6 +23,7 @@ import dev.punit.tidylink.data.scraper.LinkScraperService
 import dev.punit.tidylink.data.scraper.ScrapedData
 import dev.punit.tidylink.data.scraper.CURRENT_RELATION_CACHE_PREFIX
 import dev.punit.tidylink.data.scraper.NO_AI_RELATION_CACHE_PREFIX
+import dev.punit.tidylink.data.scraper.mergeRelationCaches
 import dev.punit.tidylink.data.scraper.resolveRelationCache
 import dev.punit.tidylink.data.work.ClassificationRetryWorker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
@@ -73,6 +74,11 @@ data class BookmarkImportSummary(val imported: Int, val skipped: Int)
 
 /** A trashed link, decoded back into an entity, with when it was deleted. */
 data class TrashedLink(val link: LinkEntity, val deletedAt: Long)
+
+internal data class DuplicateMergePlan(
+    val merged: List<LinkEntity>,
+    val redundant: List<LinkEntity>,
+)
 
 /** The chosen file was too large to read safely - see MAX_IMPORT_BYTES. */
 class ImportTooLargeException : Exception()
@@ -141,12 +147,8 @@ internal fun mergeDuplicateGroup(group: List<LinkEntity>): LinkEntity? {
     val resolvedUrl = best.resolvedUrl.ifBlank {
         group.firstOrNull { it.resolvedUrl.isNotBlank() }?.resolvedUrl.orEmpty()
     }
-    val relatedLinksJson = if (best.relatedLinksJson != "[]") best.relatedLinksJson else {
-        group.firstOrNull { it.relatedLinksJson != "[]" }?.relatedLinksJson ?: "[]"
-    }
-    val note = best.note.ifBlank {
-        group.firstOrNull { it.note.isNotBlank() }?.note.orEmpty()
-    }
+    val relatedLinksJson = mergeRelationCaches(group.map { it.relatedLinksJson })
+    val note = group.map { it.note.trim() }.filter { it.isNotBlank() }.distinct().joinToString("\n\n")
     val canonicalKey = UrlCanonicalizer.dedupeKey(resolvedUrl.ifBlank { best.url })
     return best.copy(
         imageUrl = best.imageUrl ?: group.firstNotNullOfOrNull { it.imageUrl },
@@ -166,6 +168,14 @@ internal fun mergeDuplicateGroup(group: List<LinkEntity>): LinkEntity? {
         pinned = group.any { it.pinned },
         dedupeKey = canonicalKey,
     )
+}
+
+internal fun duplicateMergePlan(links: List<LinkEntity>): DuplicateMergePlan {
+    val groups = findDuplicateGroups(links)
+    val merged = groups.mapNotNull(::mergeDuplicateGroup)
+    val winnerIds = merged.mapTo(mutableSetOf()) { it.id }
+    val groupedIds = groups.flatten().mapTo(mutableSetOf()) { it.id }
+    return DuplicateMergePlan(merged, links.filter { it.id in groupedIds && it.id !in winnerIds })
 }
 
 /**
@@ -774,8 +784,19 @@ class LinkRepository(
         return failed
     }
 
-    // Disabled until merging can preserve conflicts and propagate recoverable deletions.
-    internal suspend fun mergeDuplicates(): Int = 0
+    internal suspend fun mergeDuplicates(): Int = withContext(Dispatchers.IO) {
+        val plan = duplicateMergePlan(linkDao.getAllOnce())
+        if (plan.redundant.isEmpty()) return@withContext 0
+        val now = System.currentTimeMillis()
+        linkDao.mergeDuplicates(
+            merged = plan.merged,
+            trash = plan.redundant.map {
+                TrashedLinkEntity(it.id, json.encodeToString(it), now)
+            },
+            redundantIds = plan.redundant.map { it.id },
+        )
+        plan.redundant.size
+    }
 
     /**
      * One-shot cleanup for a category list that has grown messy, in two
