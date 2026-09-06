@@ -10,6 +10,10 @@ import dev.punit.tidylink.data.settings.LlmProviderStore
 import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.settings.ThemeStore
 import dev.punit.tidylink.data.settings.UiPreferencesStore
+import dev.punit.tidylink.data.api.GitHubRepoService
+import dev.punit.tidylink.data.api.UrlSafetyService
+import dev.punit.tidylink.data.api.WaybackService
+import dev.punit.tidylink.data.reader.ReaderModeService
 import dev.punit.tidylink.data.update.UpdateChecker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
 import dev.punit.tidylink.sync.DeviceIdentity
@@ -48,12 +52,21 @@ class AppContainer(application: Application) {
 
     val syncClient by lazy { SyncClient(database, deviceIdentity) }
 
+    val waybackService by lazy { WaybackService() }
+    val urlSafetyService by lazy { UrlSafetyService() }
+    val gitHubRepoService by lazy { GitHubRepoService() }
+    val readerModeService by lazy { ReaderModeService() }
+
     val linkRepository by lazy {
         LinkRepository(
             linkDao = database.linkDao(),
             scraper = LinkScraperService(),
             aiService = aiService,
             appContext = app.applicationContext,
+            waybackService = waybackService,
+            urlSafetyService = urlSafetyService,
+            gitHubRepoService = gitHubRepoService,
+            readerModeService = readerModeService,
         )
     }
 }

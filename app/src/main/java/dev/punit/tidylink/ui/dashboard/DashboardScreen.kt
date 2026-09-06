@@ -1,6 +1,7 @@
 package dev.punit.tidylink.ui.dashboard
 
 import androidx.paging.ItemSnapshotList
+import dev.punit.tidylink.data.reader.ReaderArticle
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
@@ -165,6 +166,9 @@ fun DashboardScreen(
     var savingRelatedUrls by remember { mutableStateOf(emptySet<String>()) }
     var detailVisible by rememberSaveable { mutableStateOf(false) }
     var editingLinkId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showReaderMode by remember { mutableStateOf(false) }
+    var readerArticle by remember { mutableStateOf<ReaderArticle?>(null) }
+    var isReaderLoading by remember { mutableStateOf(false) }
     // Every confirm-then-act in the app funnels through one dialog: deletes
     // (swipe, selection toolbar, detail sheet, trash), tidy-up, empty trash
     // and duplicate merging.
@@ -524,7 +528,13 @@ fun DashboardScreen(
                             isRefreshing = uiState.isRefreshing,
                             duplicateCount = uiState.duplicateCount,
                             trashCount = uiState.trashCount,
+                            deadLinksProgress = uiState.deadLinksScanProgress,
+                            safetyScanProgress = uiState.safetyScanProgress,
+                            isEnrichingGitHub = uiState.isEnrichingGitHub,
                             onFetchMissingDetails = viewModel::refreshAll,
+                            onCheckBrokenLinks = viewModel::scanDeadLinks,
+                            onScanSafety = viewModel::scanMaliciousLinks,
+                            onEnrichGitHub = viewModel::enrichGitHubRepos,
                             onOpenTrash = { showTrash = true },
                             onTidyCategories = {
                                 pendingConfirm = PendingConfirm(
@@ -885,8 +895,78 @@ fun DashboardScreen(
                     }
                 },
                 onImageFailed = { failed -> viewModel.recoverThumbnail(failed) },
+                onReaderMode = { url ->
+                    showReaderMode = true
+                    isReaderLoading = true
+                    viewModel.extractReaderArticle(url) { article ->
+                        readerArticle = article
+                        isReaderLoading = false
+                    }
+                },
+                onWayback = { url ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Checking Wayback Machine…")
+                        viewModel.checkWaybackForLink(url) { result ->
+                            if (result?.isArchived == true && result.snapshotUrl != null) {
+                                openLink(context, result.snapshotUrl)
+                            } else {
+                                openLink(context, "https://web.archive.org/save/$url")
+                            }
+                        }
+                    }
+                },
+                onCheckSafety = { url ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Scanning URLhaus…")
+                        viewModel.checkSafetyForLink(url) { result ->
+                            val msg = if (result?.isMalicious == true) {
+                                "Threat detected: ${result.threat}"
+                            } else {
+                                "Safe: not flagged on URLhaus"
+                            }
+                            scope.launch {
+                                snackbarHostState.showSnackbar(msg)
+                            }
+                        }
+                    }
+                },
             )
             }
         }
+    }
+
+    uiState.deadLinksResults?.let { results ->
+        DeadLinksDialog(
+            results = results,
+            onDismiss = viewModel::dismissDeadLinksDialog,
+            onOpenUrl = { openLink(context, it) },
+            onReplaceWithSnapshot = { linkId, snapUrl ->
+                viewModel.replaceWithWaybackSnapshot(linkId, snapUrl)
+            },
+            onDeleteLink = { link ->
+                viewModel.deleteLink(link)
+            },
+        )
+    }
+
+    uiState.safetyScanResults?.let { results ->
+        SafetyScanDialog(
+            results = results,
+            onDismiss = viewModel::dismissSafetyScanDialog,
+            onDeleteLink = { link ->
+                viewModel.deleteLink(link)
+            },
+        )
+    }
+
+    if (showReaderMode) {
+        ReaderModeSheet(
+            article = readerArticle,
+            isLoading = isReaderLoading,
+            onDismiss = {
+                showReaderMode = false
+                readerArticle = null
+            },
+        )
     }
 }

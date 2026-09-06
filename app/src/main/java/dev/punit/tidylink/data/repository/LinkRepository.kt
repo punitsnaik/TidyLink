@@ -27,7 +27,17 @@ import dev.punit.tidylink.data.scraper.mergeRelationCaches
 import dev.punit.tidylink.data.scraper.resolveRelationCache
 import dev.punit.tidylink.data.work.ClassificationRetryWorker
 import dev.punit.tidylink.data.work.EnrichmentSweepWorker
+import dev.punit.tidylink.data.api.GitHubRepoDetails
+import dev.punit.tidylink.data.api.GitHubRepoService
+import dev.punit.tidylink.data.api.UrlSafetyResult
+import dev.punit.tidylink.data.api.UrlSafetyService
+import dev.punit.tidylink.data.api.WaybackResult
+import dev.punit.tidylink.data.api.WaybackService
+import dev.punit.tidylink.data.reader.ReaderArticle
+import dev.punit.tidylink.data.reader.ReaderModeService
 import dev.punit.tidylink.data.work.LinkEnrichmentWorker
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -74,6 +84,29 @@ data class BookmarkImportSummary(val imported: Int, val skipped: Int)
 
 /** A trashed link, decoded back into an entity, with when it was deleted. */
 data class TrashedLink(val link: LinkEntity, val deletedAt: Long)
+
+/** Result of checking a dead link against Wayback Machine. */
+data class DeadLinkResult(
+    val link: LinkEntity,
+    val httpStatus: Int?,
+    val isDead: Boolean,
+    val waybackSnapshotUrl: String?,
+    val waybackTimestamp: String?,
+)
+
+/** Result of scanning a link for security/malware threats. */
+data class FlaggedSafetyResult(
+    val link: LinkEntity,
+    val threat: String,
+    val tags: List<String>,
+    val referenceUrl: String?,
+)
+
+/** Summary of GitHub repository deep enrichment. */
+data class GitHubEnrichmentSummary(
+    val scanned: Int,
+    val enriched: Int,
+)
 
 internal data class DuplicateMergePlan(
     val merged: List<LinkEntity>,
@@ -292,6 +325,10 @@ class LinkRepository(
     private val scraper: LinkScraperService,
     private val aiService: AiCategorizationService,
     private val appContext: Context,
+    private val waybackService: WaybackService = WaybackService(),
+    private val urlSafetyService: UrlSafetyService = UrlSafetyService(),
+    private val gitHubRepoService: GitHubRepoService = GitHubRepoService(),
+    private val readerModeService: ReaderModeService = ReaderModeService(),
 ) {
 
     private val json = linkStorageJson
@@ -1036,6 +1073,157 @@ class LinkRepository(
         val existing = existingCategories.firstOrNull { CategoryNames.key(it) == key }
         return existing ?: CategoryNames.titleCase(cleaned)
     }
+
+    private val pingClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
+    private fun pingUrlStatus(url: String): Int {
+        return try {
+            val headReq = Request.Builder()
+                .url(url)
+                .head()
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) Chrome/124.0")
+                .build()
+            pingClient.newCall(headReq).execute().use { response ->
+                response.code
+            }
+        } catch (e: Exception) {
+            try {
+                val getReq = Request.Builder()
+                    .url(url)
+                    .get()
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) Chrome/124.0")
+                    .build()
+                pingClient.newCall(getReq).execute().use { response ->
+                    response.code
+                }
+            } catch (e2: Exception) {
+                -1
+            }
+        }
+    }
+
+    /**
+     * Scans all links in the library for broken/dead URLs (404/unreachable).
+     * If broken, queries Wayback Machine to check for an archived snapshot.
+     */
+    suspend fun scanDeadLinks(
+        onProgress: (scanned: Int, total: Int) -> Unit = { _, _ -> },
+    ): List<DeadLinkResult> = withContext(Dispatchers.IO) {
+        val allLinks = linkDao.getAllOnce()
+        val deadResults = mutableListOf<DeadLinkResult>()
+        allLinks.forEachIndexed { index, link ->
+            onProgress(index + 1, allLinks.size)
+            val code = pingUrlStatus(link.url)
+            val isDead = code == 404 || code == 410 || code == -1 || code in 500..599
+            if (isDead) {
+                val wayback = waybackService.checkAvailability(link.url)
+                deadResults.add(
+                    DeadLinkResult(
+                        link = link,
+                        httpStatus = if (code == -1) null else code,
+                        isDead = true,
+                        waybackSnapshotUrl = wayback?.snapshotUrl,
+                        waybackTimestamp = wayback?.timestamp,
+                    )
+                )
+            }
+        }
+        deadResults
+    }
+
+    /**
+     * Replaces a link's target URL with an archive snapshot URL.
+     */
+    suspend fun replaceLinkWithWaybackSnapshot(linkId: String, snapshotUrl: String): Boolean = withContext(Dispatchers.IO) {
+        val existing = linkDao.getById(linkId) ?: return@withContext false
+        val newDedupeKey = UrlCanonicalizer.dedupeKey(snapshotUrl)
+        val updated = existing.copy(
+            url = snapshotUrl,
+            dedupeKey = newDedupeKey,
+            modifiedAt = System.currentTimeMillis(),
+        )
+        linkDao.upsert(updated)
+        true
+    }
+
+    /**
+     * Scans all links against the URLhaus malware/phishing database.
+     */
+    suspend fun scanMaliciousLinks(
+        onProgress: (scanned: Int, total: Int) -> Unit = { _, _ -> },
+    ): List<FlaggedSafetyResult> = withContext(Dispatchers.IO) {
+        val allLinks = linkDao.getAllOnce()
+        val flagged = mutableListOf<FlaggedSafetyResult>()
+        allLinks.forEachIndexed { index, link ->
+            onProgress(index + 1, allLinks.size)
+            val result = urlSafetyService.checkUrlSafety(link.url)
+            if (result != null && result.isMalicious) {
+                flagged.add(
+                    FlaggedSafetyResult(
+                        link = link,
+                        threat = result.threat ?: "Malware/Phishing",
+                        tags = result.tags,
+                        referenceUrl = result.referenceUrl,
+                    )
+                )
+            }
+        }
+        flagged
+    }
+
+    /**
+     * Enriches saved GitHub repository bookmarks with stars, language, and license.
+     */
+    suspend fun enrichGitHubRepositories(
+        onProgress: (scanned: Int, total: Int) -> Unit = { _, _ -> },
+    ): GitHubEnrichmentSummary = withContext(Dispatchers.IO) {
+        val allLinks = linkDao.getAllOnce()
+        val gitHubLinks = allLinks.mapNotNull { link ->
+            gitHubRepoService.extractRepoPath(link.url)?.let { path -> link to path }
+        }
+        var enrichedCount = 0
+        gitHubLinks.forEachIndexed { index, (link, path) ->
+            onProgress(index + 1, gitHubLinks.size)
+            val (owner, repo) = path
+            val details = gitHubRepoService.fetchRepoDetails(owner, repo)
+            if (details != null) {
+                val starsBadge = "⭐ ${details.stars}"
+                val langBadge = details.language?.let { " • $it" }.orEmpty()
+                val licenseBadge = details.license?.let { " • $it" }.orEmpty()
+                val metaInfo = "$starsBadge$langBadge$licenseBadge"
+
+                val updatedDesc = if (link.description.isBlank()) details.description.orEmpty() else link.description
+                val updatedNote = if (link.note.isBlank()) metaInfo else if (!link.note.contains("⭐")) "${link.note}\n$metaInfo" else link.note
+
+                val updated = link.copy(
+                    description = updatedDesc,
+                    note = updatedNote,
+                    modifiedAt = System.currentTimeMillis(),
+                )
+                linkDao.upsert(updated)
+                enrichedCount++
+            }
+        }
+        GitHubEnrichmentSummary(scanned = gitHubLinks.size, enriched = enrichedCount)
+    }
+
+    suspend fun checkSingleLinkWayback(url: String): WaybackResult? =
+        waybackService.checkAvailability(url)
+
+    suspend fun checkSingleLinkSafety(url: String): UrlSafetyResult? =
+        urlSafetyService.checkUrlSafety(url)
+
+    suspend fun fetchSingleGitHubDetails(url: String): GitHubRepoDetails? {
+        val (owner, repo) = gitHubRepoService.extractRepoPath(url) ?: return null
+        return gitHubRepoService.fetchRepoDetails(owner, repo)
+    }
+
+    suspend fun extractReaderArticle(url: String): ReaderArticle? =
+        readerModeService.extractArticle(url)
 
     companion object {
         const val FALLBACK_CATEGORY = "Uncategorized"
