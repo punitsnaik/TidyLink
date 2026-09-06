@@ -41,6 +41,17 @@ import kotlin.math.roundToInt
 
 private val THUMB_HEIGHT = 48.dp
 
+internal fun fastScrollThumbHeightPx(
+    trackHeightPx: Int,
+    viewportHeightPx: Int,
+    contentHeightPx: Int,
+    minimumPx: Int,
+): Int {
+    if (trackHeightPx <= 0 || viewportHeightPx <= 0 || contentHeightPx <= 0) return minimumPx
+    val proportional = trackHeightPx.toLong() * viewportHeightPx / contentHeightPx
+    return proportional.coerceIn(minimumPx.toLong(), trackHeightPx.toLong()).toInt()
+}
+
 /**
  * Height of every row before [row], in pixels.
  *
@@ -293,7 +304,17 @@ internal fun FastScroller(
                 .width(160.dp)
                 .onSizeChanged { trackHeightPx = it.height },
         ) {
-            val thumbHeightPx = with(density) { THUMB_HEIGHT.toPx() }
+            val info = gridState.layoutInfo
+            val cols = columnsSeen[0]
+            val rows = ceil((info.totalItemsCount - indexOffset).coerceAtLeast(0).toFloat() / cols).toInt()
+            val contentHeightPx = heightAbove(rows, rowHeightAt).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val minimumThumbPx = with(density) { THUMB_HEIGHT.roundToPx() }
+            val thumbHeightPx = fastScrollThumbHeightPx(
+                trackHeightPx,
+                info.viewportSize.height,
+                contentHeightPx,
+                minimumThumbPx,
+            ).toFloat()
             val travelPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(1f)
             val offsetY = (fraction * travelPx).roundToInt()
             // The exact inverse of layoutFraction, fed the SAME inputs read
@@ -343,7 +364,7 @@ internal fun FastScroller(
                     .align(Alignment.TopEnd)
                     .offset { IntOffset(0, offsetY) }
                     .width(28.dp)
-                    .height(THUMB_HEIGHT)
+                    .height(with(density) { thumbHeightPx.toDp() })
                     .pointerInput(itemCount, trackHeightPx, indexOffset) {
                         detectVerticalDragGestures(
                             onDragStart = {

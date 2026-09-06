@@ -218,6 +218,13 @@ class FastScrollTargetIndexTest {
         }
     }
 
+    @Test
+    fun thumb_grows_for_short_lists_and_keeps_a_touchable_minimum_for_long_lists() {
+        assertEquals(800, fastScrollThumbHeightPx(trackHeightPx = 800, viewportHeightPx = 800, contentHeightPx = 800, minimumPx = 48))
+        assertEquals(400, fastScrollThumbHeightPx(trackHeightPx = 800, viewportHeightPx = 800, contentHeightPx = 1_600, minimumPx = 48))
+        assertEquals(48, fastScrollThumbHeightPx(trackHeightPx = 800, viewportHeightPx = 800, contentHeightPx = 80_000, minimumPx = 48))
+    }
+
     // --- helpers ----------------------------------------------------------
 
     private fun unevenRow(row: Int): Int = unevenRows.getOrElse(row) { 400 }

@@ -126,14 +126,14 @@
     <string name="tools_tidy_subtitle">Merge similar categories into a smaller set. This can\'t be undone.</string>
     <string name="tools_duplicates_title">Merge duplicates</string>
     <plurals name="tools_duplicates_subtitle">
-        <item quantity="one">%1$d duplicate copy found. Details are combined into one link.</item>
-        <item quantity="other">%1$d duplicate copies found. Details are combined into one link.</item>
+        <item quantity="one">%1$d duplicate copy found. Details will be combined and the extra copy moved to Trash.</item>
+        <item quantity="other">%1$d duplicate copies found. Details will be combined and extra copies moved to Trash.</item>
     </plurals>
     <string name="tools_duplicates_none">No duplicates found</string>
     <string name="dialog_duplicates_title">Merge duplicates?</string>
     <plurals name="dialog_duplicates_body">
-        <item quantity="one">%1$d redundant copy will be combined into the link it duplicates. Images, summaries and pins are kept. This can\'t be undone.</item>
-        <item quantity="other">%1$d redundant copies will be combined into the links they duplicate. Images, summaries and pins are kept. This can\'t be undone.</item>
+        <item quantity="one">%1$d redundant copy will be combined. Images, summaries, notes and pins are kept; the extra copy moves to Trash.</item>
+        <item quantity="other">%1$d redundant copies will be combined. Images, summaries, notes and pins are kept; extra copies move to Trash.</item>
     </plurals>
     <string name="dialog_duplicates_confirm">Merge</string>
     <string name="tools_trash_title">Trash</string>
@@ -285,7 +285,6 @@
         <item quantity="one">Merged %d duplicate link</item>
         <item quantity="other">Merged %d duplicate links</item>
     </plurals>
-    <string name="msg_duplicates_unavailable">Merging is temporarily unavailable to protect your saved details. Both copies have been kept.</string>
     <string name="msg_duplicates_none">No duplicates to merge</string>
     <string name="msg_duplicates_failed">Couldn\'t merge duplicates</string>
     <plurals name="msg_imported_bookmarks">

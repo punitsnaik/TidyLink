@@ -237,6 +237,18 @@ interface LinkDao {
         deleteByIds(ids)
     }
 
+    /** Updates winners and moves redundant copies to recoverable trash atomically. */
+    @Transaction
+    suspend fun mergeDuplicates(
+        merged: List<LinkEntity>,
+        trash: List<TrashedLinkEntity>,
+        redundantIds: List<String>,
+    ) {
+        upsertAll(merged)
+        insertTrashed(trash)
+        deleteByIds(redundantIds)
+    }
+
     /** Restoring is the same two steps in the other order, same reasoning. */
     @Transaction
     suspend fun restoreFromTrash(links: List<LinkEntity>, ids: List<String>) {

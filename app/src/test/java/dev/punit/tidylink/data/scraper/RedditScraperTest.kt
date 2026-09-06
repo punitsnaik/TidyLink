@@ -46,18 +46,46 @@ class RedditScraperTest {
     }
 
     @Test
-    fun `full reddit page excludes comment anchors and plain text URLs`() {
+    fun `public comments prefer pinned then stop after the top five`() {
         val url = "https://old.reddit.com/r/test/comments/123/post"
         val doc = Jsoup.parse("""
             <div class="thing link"><div class="usertext-body">
               <a href="https://example.com/post-resource">Resource</a>
             </div></div>
-            <div class="commentarea"><div class="thing comment"><div class="usertext-body">
-              <a href="https://example.com/comment-link">Comment</a>
-              https://example.com/comment-text
-            </div></div></div>
+            <div class="commentarea">
+              <div class="thing comment"><div class="usertext-body"><a href="https://example.com/one">One</a></div></div>
+              <div class="thing comment"><div class="usertext-body"><a href="https://example.com/two">Two</a></div></div>
+              <div class="thing comment"><div class="usertext-body"><a href="https://example.com/three">Three</a></div></div>
+              <div class="thing comment"><div class="usertext-body"><a href="https://example.com/four">Four</a></div></div>
+              <div class="thing comment"><div class="usertext-body"><a href="https://example.com/five">Five</a></div></div>
+              <div class="thing comment stickied"><div class="usertext-body"><a href="https://example.com/pinned">Pinned</a></div></div>
+              <div class="thing comment"><div class="usertext-body"><a href="https://example.com/six">Six</a></div></div>
+            </div>
         """.trimIndent(), url)
-        assertEquals(listOf("https://example.com/post-resource"), extractRelatedLinks(doc, url).map { it.url })
+        assertEquals(
+            setOf(
+                "https://example.com/post-resource",
+                "https://example.com/pinned",
+                "https://example.com/one",
+                "https://example.com/two",
+                "https://example.com/three",
+                "https://example.com/four",
+            ),
+            extractRelatedLinks(doc, url).map { it.url }.toSet(),
+        )
+    }
+
+    @Test
+    fun `youtube and instagram public comment containers contribute links`() {
+        val youtube = Jsoup.parse("""
+            <main><ytd-comment-thread-renderer><div id="content-text">See https://example.com/youtube</div></ytd-comment-thread-renderer></main>
+        """.trimIndent(), "https://www.youtube.com/watch?v=123")
+        val instagram = Jsoup.parse("""
+            <main><article><ul><li role="button"><span>See https://example.com/instagram</span></li></ul></article></main>
+        """.trimIndent(), "https://www.instagram.com/p/123/")
+
+        assertEquals(listOf("https://example.com/youtube"), extractRelatedLinks(youtube, youtube.location()).map { it.url })
+        assertEquals(listOf("https://example.com/instagram"), extractRelatedLinks(instagram, instagram.location()).map { it.url })
     }
 
     @Test
@@ -68,4 +96,3 @@ class RedditScraperTest {
         assertEquals(listOf(link), mergeRelatedLinks(first, first))
     }
 }
-

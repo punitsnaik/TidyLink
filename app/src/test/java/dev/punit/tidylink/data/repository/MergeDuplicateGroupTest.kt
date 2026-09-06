@@ -160,6 +160,32 @@ class MergeDuplicateGroupTest {
     }
 
     @Test
+    fun `distinct notes and useful links from every copy survive`() {
+        val firstLinks = """{"version":2,"aiAttempted":false,"fingerprint":"a","links":[{"url":"https://example.com/a","title":"A","role":"Related"}]}"""
+        val secondLinks = """{"version":2,"aiAttempted":true,"fingerprint":"b","links":[{"url":"https://example.com/b","title":"B","role":"Related"}]}"""
+        val merged = mergeDuplicateGroup(listOf(
+            link("first", category = "Tech", note = "First note", relatedLinksJson = firstLinks),
+            link("second", note = "Second note", relatedLinksJson = secondLinks),
+        ))!!
+
+        assertEquals("First note\n\nSecond note", merged.note)
+        assertTrue(merged.relatedLinksJson.contains("https://example.com/a"))
+        assertTrue(merged.relatedLinksJson.contains("https://example.com/b"))
+    }
+
+    @Test
+    fun `merge plan keeps winners and sends only redundant copies to trash`() {
+        val plan = duplicateMergePlan(listOf(
+            link("a", category = "Tech"),
+            link("b"),
+            link("unrelated", url = "https://elsewhere.example/page"),
+        ))
+
+        assertEquals(listOf("a"), plan.merged.map { it.id })
+        assertEquals(listOf("b"), plan.redundant.map { it.id })
+    }
+
+    @Test
     fun `findDuplicateGroups groups short link and target link by resolvedUrl`() {
         val short = link("1", url = "https://reddit.com/r/HowToMen/s/zGy6FijNnU", resolvedUrl = "https://reddit.com/r/HowToMen/comments/1w5tvxg/app/")
         val canonical = link("2", url = "https://reddit.com/r/HowToMen/comments/1w5tvxg/app/", resolvedUrl = "")
