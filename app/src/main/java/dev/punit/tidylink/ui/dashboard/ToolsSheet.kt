@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -56,7 +58,13 @@ internal fun ToolsTab(
     isRefreshing: Boolean,
     duplicateCount: Int,
     trashCount: Int,
+    deadLinksProgress: Pair<Int, Int>?,
+    safetyScanProgress: Pair<Int, Int>?,
+    isEnrichingGitHub: Boolean,
     onFetchMissingDetails: () -> Unit,
+    onCheckBrokenLinks: () -> Unit,
+    onScanSafety: () -> Unit,
+    onEnrichGitHub: () -> Unit,
     onTidyCategories: () -> Unit,
     onMergeDuplicates: () -> Unit,
     onOpenTrash: () -> Unit,
@@ -69,6 +77,42 @@ internal fun ToolsTab(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
+        ToolRow(
+            icon = Icons.Default.Refresh,
+            title = stringResource(R.string.tools_dead_links_title),
+            subtitle = if (deadLinksProgress != null) {
+                stringResource(R.string.tools_dead_links_busy, deadLinksProgress.first, deadLinksProgress.second)
+            } else {
+                stringResource(R.string.tools_dead_links_subtitle)
+            },
+            onClick = onCheckBrokenLinks,
+            enabled = deadLinksProgress == null,
+            busy = deadLinksProgress != null,
+        )
+        ToolRow(
+            icon = Icons.Default.Warning,
+            title = stringResource(R.string.tools_safety_title),
+            subtitle = if (safetyScanProgress != null) {
+                stringResource(R.string.tools_safety_busy, safetyScanProgress.first, safetyScanProgress.second)
+            } else {
+                stringResource(R.string.tools_safety_subtitle)
+            },
+            onClick = onScanSafety,
+            enabled = safetyScanProgress == null,
+            busy = safetyScanProgress != null,
+        )
+        ToolRow(
+            icon = Icons.Default.Star,
+            title = stringResource(R.string.tools_github_title),
+            subtitle = if (isEnrichingGitHub) {
+                stringResource(R.string.tools_github_busy)
+            } else {
+                stringResource(R.string.tools_github_subtitle)
+            },
+            onClick = onEnrichGitHub,
+            enabled = !isEnrichingGitHub,
+            busy = isEnrichingGitHub,
+        )
         ToolRow(
             icon = Icons.Default.Refresh,
             title = stringResource(R.string.tools_fetch_missing_title),

@@ -20,6 +20,12 @@ import dev.punit.tidylink.data.ai.AiCategorizationService
 import dev.punit.tidylink.data.local.CategoryCount
 import dev.punit.tidylink.data.local.LinkEntity
 import dev.punit.tidylink.data.local.SortOrder
+import dev.punit.tidylink.data.api.GitHubRepoDetails
+import dev.punit.tidylink.data.api.UrlSafetyResult
+import dev.punit.tidylink.data.api.WaybackResult
+import dev.punit.tidylink.data.reader.ReaderArticle
+import dev.punit.tidylink.data.repository.DeadLinkResult
+import dev.punit.tidylink.data.repository.FlaggedSafetyResult
 import dev.punit.tidylink.data.repository.ImportTooLargeException
 import dev.punit.tidylink.data.repository.LinkRepository
 import dev.punit.tidylink.data.repository.TrashedLink
@@ -108,6 +114,16 @@ data class LinkUiState(
     val duplicateCount: Int = 0,
     /** Links in the trash - shown on the Tools sheet row. */
     val trashCount: Int = 0,
+    /** Progress for dead link checking (current to total). */
+    val deadLinksScanProgress: Pair<Int, Int>? = null,
+    /** Discovered broken links, or null when dialog is closed. */
+    val deadLinksResults: List<DeadLinkResult>? = null,
+    /** Progress for URL safety scanning (current to total). */
+    val safetyScanProgress: Pair<Int, Int>? = null,
+    /** Discovered flagged URLs, or null when dialog is closed. */
+    val safetyScanResults: List<FlaggedSafetyResult>? = null,
+    /** True while GitHub repo enrichment is running in the background. */
+    val isEnrichingGitHub: Boolean = false,
 ) {
     val isSelectionMode: Boolean get() = selectedIds.isNotEmpty()
 }
@@ -142,6 +158,11 @@ class LinkViewModel(
     private val pendingUndo = MutableStateFlow<List<String>>(emptyList())
     private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
     private val refreshingIds = MutableStateFlow<Set<String>>(emptySet())
+    private val deadLinksScanProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    private val deadLinksResults = MutableStateFlow<List<DeadLinkResult>?>(null)
+    private val safetyScanProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+    private val safetyScanResults = MutableStateFlow<List<FlaggedSafetyResult>?>(null)
+    private val isEnrichingGitHub = MutableStateFlow(false)
 
     /** The inputs that decide which links the grid shows. */
     private data class LibraryQuery(
@@ -213,6 +234,11 @@ class LinkViewModel(
         }
         .combine(repository.duplicateCount()) { state, v -> state.copy(duplicateCount = v) }
         .combine(repository.trashCount()) { state, v -> state.copy(trashCount = v) }
+        .combine(deadLinksScanProgress) { state, v -> state.copy(deadLinksScanProgress = v) }
+        .combine(deadLinksResults) { state, v -> state.copy(deadLinksResults = v) }
+        .combine(safetyScanProgress) { state, v -> state.copy(safetyScanProgress = v) }
+        .combine(safetyScanResults) { state, v -> state.copy(safetyScanResults = v) }
+        .combine(isEnrichingGitHub) { state, v -> state.copy(isEnrichingGitHub = v) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -392,6 +418,89 @@ class LinkViewModel(
             } finally {
                 isRefreshing.value = false
             }
+        }
+    }
+
+    // --- Public APIs tools ----------------------------------------------------
+
+    fun scanDeadLinks() {
+        if (deadLinksScanProgress.value != null) return
+        viewModelScope.launch {
+            deadLinksScanProgress.value = 0 to 0
+            val results = repository.scanDeadLinks { current, total ->
+                deadLinksScanProgress.value = current to total
+            }
+            deadLinksScanProgress.value = null
+            deadLinksResults.value = results
+        }
+    }
+
+    fun dismissDeadLinksDialog() {
+        deadLinksResults.value = null
+    }
+
+    fun replaceWithWaybackSnapshot(linkId: String, snapshotUrl: String) {
+        viewModelScope.launch {
+            repository.replaceLinkWithWaybackSnapshot(linkId, snapshotUrl)
+            deadLinksResults.value = deadLinksResults.value?.filterNot { it.link.id == linkId }
+        }
+    }
+
+    fun scanMaliciousLinks() {
+        if (safetyScanProgress.value != null) return
+        viewModelScope.launch {
+            safetyScanProgress.value = 0 to 0
+            val results = repository.scanMaliciousLinks { current, total ->
+                safetyScanProgress.value = current to total
+            }
+            safetyScanProgress.value = null
+            safetyScanResults.value = results
+        }
+    }
+
+    fun dismissSafetyScanDialog() {
+        safetyScanResults.value = null
+    }
+
+    fun enrichGitHubRepos() {
+        if (isEnrichingGitHub.value) return
+        viewModelScope.launch {
+            isEnrichingGitHub.value = true
+            val summary = repository.enrichGitHubRepositories()
+            isEnrichingGitHub.value = false
+            message.value = if (summary.scanned == 0) {
+                UiMessage.Text(R.string.msg_github_no_links)
+            } else {
+                UiMessage.Text(R.string.msg_github_enriched, listOf(summary.enriched))
+            }
+        }
+    }
+
+    fun checkWaybackForLink(url: String, onResult: (WaybackResult?) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.checkSingleLinkWayback(url)
+            onResult(res)
+        }
+    }
+
+    fun checkSafetyForLink(url: String, onResult: (UrlSafetyResult?) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.checkSingleLinkSafety(url)
+            onResult(res)
+        }
+    }
+
+    fun fetchGitHubForLink(url: String, onResult: (GitHubRepoDetails?) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.fetchSingleGitHubDetails(url)
+            onResult(res)
+        }
+    }
+
+    fun extractReaderArticle(url: String, onResult: (ReaderArticle?) -> Unit) {
+        viewModelScope.launch {
+            val res = repository.extractReaderArticle(url)
+            onResult(res)
         }
     }
 
