@@ -277,6 +277,7 @@ interface LinkDao {
 
 /** Runs of letters/digits/underscore - everything else is a separator. */
 private val FTS_WORD = Regex("[\\p{L}\\p{N}_]+")
+private val FTS_URL_NOISE = setOf("http", "https", "www")
 
 /**
  * Escapes raw user input into a valid FTS MATCH expression with prefix
@@ -293,6 +294,8 @@ private val FTS_WORD = Regex("[\\p{L}\\p{N}_]+")
  * only recognizes in uppercase - become ordinary search terms. The unicode61
  * tokenizer folds case anyway, so lowercasing costs no recall.
  */
-fun sanitizeFtsQuery(userQuery: String): String =
-    FTS_WORD.findAll(userQuery)
-        .joinToString(" ") { "${it.value.lowercase()}*" }
+fun sanitizeFtsQuery(userQuery: String): String {
+    val words = FTS_WORD.findAll(userQuery).map { it.value.lowercase() }.toList()
+    // Drop URL noise so a pasted URL doesn't fail the FTS AND-match, unless nothing else is left.
+    return words.filterNot { it in FTS_URL_NOISE }.ifEmpty { words }.joinToString(" ") { "$it*" }
+}
