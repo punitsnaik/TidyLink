@@ -28,6 +28,16 @@ class ThemeStore(context: Context) {
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    private val _dynamicColor = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC_COLOR, false))
+
+    /** Material You wallpaper colors. Ignored below API 31 and in AMOLED. */
+    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
+
+    fun setDynamicColor(enabled: Boolean) {
+        _dynamicColor.value = enabled
+        prefs.edit { putBoolean(KEY_DYNAMIC_COLOR, enabled) }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         prefs.edit { putString(KEY_THEME_MODE, mode.name) }
@@ -36,5 +46,6 @@ class ThemeStore(context: Context) {
     private companion object {
         const val PREFS_NAME = "theme"
         const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_DYNAMIC_COLOR = "dynamic_color"
     }
 }

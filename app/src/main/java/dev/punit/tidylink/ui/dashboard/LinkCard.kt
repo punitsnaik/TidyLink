@@ -14,8 +14,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.AnchoredDraggableDefaults
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -58,6 +60,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -97,11 +100,10 @@ import kotlin.math.roundToInt
 
 private const val TITLE_MAX_LINES = 2
 
-// Swipe actions: width of the revealed button, and how far (fraction of card
-// width) a drag must travel to run the action without tapping the button.
-private val SWIPE_REVEAL_WIDTH = 104.dp
+// Swipe actions: how far the card opens to reveal a button, and the gap
+// between the card and that button.
+private val SWIPE_REVEAL_WIDTH = 128.dp
 private val SWIPE_PANEL_GAP = 8.dp
-private const val FULL_SWIPE_FRACTION = 0.6f
 
 // Keep summaries concise even when portrait media makes a card taller.
 private const val SUMMARY_MAX_LINES = 3
@@ -169,38 +171,54 @@ internal fun LinkCard(
         label = "containerColor",
     )
 
-    // Amazon-cart style swipe. A partial drag snaps open to reveal a
-    // Refresh (right) or Delete (left) button that must be tapped; a long
-    // drag past FULL_SWIPE_FRACTION of the card runs the action directly.
-    // Fling velocity is deliberately ignored - a quick flick only reveals.
+    // Two-step swipe (see CardSwipe): a partial drag settles on a revealed
+    // Refresh (right) / Delete (left) button to tap; a drag past the middle
+    // of the card commits the action and springs back. AnchoredDraggable
+    // applies drag deltas synchronously and always settles on an anchor, so
+    // the card can never be left resting part-way. A fling moves at most one
+    // step, so a quick flick only ever reveals.
     val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val revealPx = with(density) { SWIPE_REVEAL_WIDTH.toPx() }
+    val revealPx = with(LocalDensity.current) { SWIPE_REVEAL_WIDTH.toPx() }
     var cardWidth by remember { mutableIntStateOf(0) }
-    val offset = remember { Animatable(0f) }
     val canRefresh = showActions && cardRefreshSwipe
     val canDelete = showActions && cardDeleteSwipe
-    val fullSwipePx = cardWidth * FULL_SWIPE_FRACTION
-    val pastFull = cardWidth > 0 && kotlin.math.abs(offset.value) > fullSwipePx
+    val swipe = remember { AnchoredDraggableState(CardSwipe.Closed) }
+    LaunchedEffect(cardWidth, revealPx, canRefresh, canDelete) {
+        swipe.updateAnchors(cardSwipeAnchors(cardWidth.toFloat(), revealPx, canRefresh, canDelete))
+    }
+    // Offset is NaN until the first anchors land.
+    fun swipeOffset(): Float = swipe.offset.takeUnless { it.isNaN() } ?: 0f
+
+    val currentOnRefresh by rememberUpdatedState(onRefresh)
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    val currentOnOpenChange by rememberUpdatedState(onOpenChange)
+    LaunchedEffect(swipe.settledValue) {
+        when (swipe.settledValue) {
+            CardSwipe.RefreshCommitted -> {
+                currentOnRefresh()
+                swipe.animateTo(CardSwipe.Closed)
+            }
+            CardSwipe.DeleteCommitted -> {
+                currentOnDelete()
+                swipe.animateTo(CardSwipe.Closed)
+            }
+            CardSwipe.RefreshRevealed, CardSwipe.DeleteRevealed -> currentOnOpenChange(true)
+            CardSwipe.Closed -> currentOnOpenChange(false)
+        }
+    }
+    // Tick once as the drag crosses into commit territory.
     val haptics = LocalHapticFeedback.current
-    LaunchedEffect(pastFull) {
-        if (pastFull) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    LaunchedEffect(swipe.targetValue) {
+        if (swipe.targetValue.isCommitted && !swipe.settledValue.isCommitted) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
     }
     // Another card opened (or the list scrolled): close this one.
     LaunchedEffect(isOpen) {
-        if (!isOpen && offset.value != 0f) offset.animateTo(0f)
-    }
-    LaunchedEffect(showActions) {
-        if (!showActions) offset.snapTo(0f)
+        if (!isOpen && swipe.settledValue.isRevealed) swipe.animateTo(CardSwipe.Closed)
     }
     fun close() {
-        onOpenChange(false)
-        scope.launch { offset.animateTo(0f) }
-    }
-    val dragState = rememberDraggableState { delta ->
-        val min = if (canDelete) -cardWidth.toFloat() else 0f
-        val max = if (canRefresh) cardWidth.toFloat() else 0f
-        scope.launch { offset.snapTo((offset.value + delta).coerceIn(min, max)) }
+        scope.launch { swipe.animateTo(CardSwipe.Closed) }
     }
 
     // TalkBack / switch-access parity for the swipe gestures.
@@ -215,12 +233,17 @@ internal fun LinkCard(
     ) {
         // Action button: fixed width, riding just behind the card's edge
         // (with a small gap) so it slides in alongside the card and is never
-        // covered by it. Once fully revealed it parks at the outer edge;
-        // dragging further only widens the gap. Clipped to the card's bounds
+        // covered by it. Once fully revealed it parks at the outer edge
+        // and stretches with any further drag. Clipped to the card's bounds
         // so it can't peek into the list gutter while hidden.
-        if (offset.value != 0f) {
-            val isDelete = offset.value < 0f
-            val panelWidth = SWIPE_REVEAL_WIDTH - SWIPE_PANEL_GAP
+        val x = swipeOffset()
+        if (x != 0f) {
+            val isDelete = x < 0f
+            // Fixed width up to the open point; past it the button stretches
+            // to stay attached to the card, so a long swipe never leaves a gap.
+            val panelWidth = with(LocalDensity.current) {
+                maxOf(SWIPE_REVEAL_WIDTH, kotlin.math.abs(x).toDp()) - SWIPE_PANEL_GAP
+            }
             val panelColor = if (isDelete) {
                 MaterialTheme.colorScheme.errorContainer
             } else {
@@ -239,12 +262,13 @@ internal fun LinkCard(
                     .clipToBounds()
                     .wrapContentWidth(if (isDelete) Alignment.End else Alignment.Start)
                     .offset {
-                        val x = if (isDelete) {
-                            (revealPx + offset.value).coerceAtLeast(0f)
+                        val cardX = swipeOffset()
+                        val panelX = if (isDelete) {
+                            (revealPx + cardX).coerceAtLeast(0f)
                         } else {
-                            (offset.value - revealPx).coerceAtMost(0f)
+                            (cardX - revealPx).coerceAtMost(0f)
                         }
-                        IntOffset(x.roundToInt(), 0)
+                        IntOffset(panelX.roundToInt(), 0)
                     }
                     .width(panelWidth)
                     .clip(RoundedCornerShape(20.dp))
@@ -276,25 +300,15 @@ internal fun LinkCard(
             border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
             modifier = Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .draggable(
-                    state = dragState,
+                .offset { IntOffset(swipeOffset().roundToInt(), 0) }
+                .anchoredDraggable(
+                    state = swipe,
                     orientation = Orientation.Horizontal,
                     enabled = canRefresh || canDelete,
-                    onDragStopped = {
-                        val x = offset.value
-                        when {
-                            cardWidth > 0 && kotlin.math.abs(x) > fullSwipePx -> {
-                                close()
-                                if (x < 0f) onDelete() else onRefresh()
-                            }
-                            kotlin.math.abs(x) > revealPx / 2 -> {
-                                onOpenChange(true)
-                                offset.animateTo(if (x < 0f) -revealPx else revealPx)
-                            }
-                            else -> close()
-                        }
-                    },
+                    flingBehavior = AnchoredDraggableDefaults.flingBehavior(
+                        state = swipe,
+                        positionalThreshold = { distance -> distance * 0.5f },
+                    ),
                 )
                 .graphicsLayer {
                     val progress = entrance?.value ?: 1f
@@ -306,7 +320,7 @@ internal fun LinkCard(
                 .combinedClickable(
                     interactionSource = interactionSource,
                     indication = null,
-                    onClick = { if (offset.value != 0f) close() else onClick() },
+                    onClick = { if (swipeOffset() != 0f) close() else onClick() },
                     onLongClick = onLongClick,
                 )
                 .semantics {

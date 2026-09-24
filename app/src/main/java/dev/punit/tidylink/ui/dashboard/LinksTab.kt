@@ -36,6 +36,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.punit.tidylink.data.settings.OnboardingStore
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -110,7 +112,10 @@ internal fun LinksTab(
     val pinnedSlotPx = with(density) { (topInset + PINNED_SEARCH_TOP).toPx() }
     val searchPinned by remember {
         derivedStateOf {
-            !uiState.isSelectionMode && (
+            // canScrollBackward: at rest at the top the inline bar is where it
+            // belongs, whatever a stale inlineSearchY says (e.g. after the
+            // list emptied while the header was scrolled away).
+            !uiState.isSelectionMode && gridState.canScrollBackward && (
                 gridState.firstVisibleItemIndex > 0 ||
                     inlineSearchY <= boxTopY + pinnedSlotPx
                 )
@@ -301,6 +306,17 @@ private fun LinksHeader(
             AddProviderBanner(
                 onAdd = onShowAiProviders,
                 onDismiss = onDismissProviderBanner,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+
+        // One-time hint for the two-step swipe; gestures aren't discoverable.
+        val seenTips by viewModel.seenTips.collectAsStateWithLifecycle()
+        if (OnboardingStore.TIP_SWIPE !in seenTips && lazyLinks.itemCount > 0) {
+            TipBanner(
+                title = stringResource(R.string.tip_swipe_title),
+                body = stringResource(R.string.tip_swipe_body),
+                onDismiss = { viewModel.markTipSeen(OnboardingStore.TIP_SWIPE) },
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }

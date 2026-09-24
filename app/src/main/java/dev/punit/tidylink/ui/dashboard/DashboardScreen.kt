@@ -60,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import dev.punit.tidylink.R
+import dev.punit.tidylink.data.settings.OnboardingStore
 import dev.punit.tidylink.data.local.LinkEntity
 
 import dev.punit.tidylink.data.settings.LibraryViewMode
@@ -134,7 +135,9 @@ fun DashboardScreen(
     val lazyPinned = viewModel.pinnedLinks.collectAsLazyPagingItems()
     val providers by viewModel.llmProviders.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    val seenTips by viewModel.seenTips.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val libraryViewMode by viewModel.libraryViewMode.collectAsStateWithLifecycle()
     val cardRefreshSwipe by viewModel.cardRefreshSwipe.collectAsStateWithLifecycle()
     val cardDeleteSwipe by viewModel.cardDeleteSwipe.collectAsStateWithLifecycle()
@@ -564,6 +567,8 @@ fun DashboardScreen(
                             cardDeleteSwipe = cardDeleteSwipe,
                             pageSwipeNavigation = pageSwipeNavigation,
                             onThemeClick = { showThemeSheet = true },
+                            dynamicColor = dynamicColor,
+                            onDynamicColorChange = viewModel::setDynamicColor,
                             onCardRefreshSwipeChange = viewModel::setCardRefreshSwipe,
                             onCardDeleteSwipeChange = viewModel::setCardDeleteSwipe,
                             onPageSwipeNavigationChange = viewModel::setPageSwipeNavigation,
@@ -591,6 +596,7 @@ fun DashboardScreen(
                                 )
                             },
                             onShowIntro = viewModel::replayIntro,
+                            onShowWhatsNew = viewModel::openWhatsNew,
                             onOpenRepo = { openLink(context, REPO_URL) },
                             updateState = updateState,
                             onUpdateClick = {
@@ -889,7 +895,9 @@ fun DashboardScreen(
                     }
                 },
                 onImageFailed = { failed -> viewModel.recoverThumbnail(failed) },
+                toolsNew = OnboardingStore.TIP_LINK_TOOLS !in seenTips,
                 onReaderMode = { url ->
+                    viewModel.markTipSeen(OnboardingStore.TIP_LINK_TOOLS)
                     showReaderMode = true
                     isReaderLoading = true
                     viewModel.extractReaderArticle(url) { article ->
@@ -898,6 +906,7 @@ fun DashboardScreen(
                     }
                 },
                 onWayback = { url ->
+                    viewModel.markTipSeen(OnboardingStore.TIP_LINK_TOOLS)
                     scope.launch {
                         snackbarHostState.showSnackbar("Checking Wayback Machine…")
                         viewModel.checkWaybackForLink(url) { result ->
@@ -910,6 +919,7 @@ fun DashboardScreen(
                     }
                 },
                 onCheckSafety = { url ->
+                    viewModel.markTipSeen(OnboardingStore.TIP_LINK_TOOLS)
                     scope.launch {
                         snackbarHostState.showSnackbar("Scanning URLhaus…")
                         viewModel.checkSafetyForLink(url) { result ->
