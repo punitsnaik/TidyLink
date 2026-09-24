@@ -474,11 +474,10 @@ fun DashboardScreen(
                             onShowAiProviders = { showAiProviders = true },
                             onOpenDetail = { detailHistory = arrayListOf(); selectedLinkId = it; detailVisible = true },
                             onRequestDelete = { link ->
-                                pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
+                                viewModel.deleteLink(link)
                             },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
+                            insets = innerPadding,
+                            modifier = Modifier.fillMaxSize(),
                         )
 
                         DashboardTab.Pinned -> {
@@ -506,15 +505,16 @@ fun DashboardScreen(
                                     onImageFailed = viewModel::recoverThumbnail,
                                     onOpenDetail = { detailHistory = arrayListOf(); selectedLinkId = it; detailVisible = true },
                                     onRequestDelete = { link ->
-                                        pendingConfirm = deleteConfirm(1) { viewModel.deleteLink(link) }
+                                        viewModel.deleteLink(link)
                                     },
                                     animateEntrance = false,
                                     header = if (uiState.isSelectionMode) null else {
                                         { ResultsHeader(lazyPinned.loadState.refresh, lazyPinned.itemCount, false) }
                                     },
+                                    bottomInset = innerPadding.calculateBottomPadding(),
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(innerPadding),
+                                        .padding(top = innerPadding.calculateTopPadding()),
                                 )
                             }
                         }
