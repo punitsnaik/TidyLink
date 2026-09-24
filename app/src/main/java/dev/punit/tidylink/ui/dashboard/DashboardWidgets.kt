@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
@@ -89,12 +90,20 @@ internal fun SearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    containerColor: Color = Color.Transparent,
 ) {
     val focusManager = LocalFocusManager.current
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = modifier,
+        modifier = modifier
+            .shadow(
+                elevation = 4.dp,
+                shape = RoundedCornerShape(28.dp),
+                clip = false,
+                ambientColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                spotColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f),
+            ),
         placeholder = { Text(stringResource(R.string.search_placeholder)) },
         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
         trailingIcon = {
@@ -112,10 +121,10 @@ internal fun SearchBar(
         keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
         shape = RoundedCornerShape(28.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-            focusedContainerColor = Color.Transparent,
-            unfocusedContainerColor = Color.Transparent,
+            focusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+            focusedContainerColor = containerColor,
+            unfocusedContainerColor = containerColor,
         ),
     )
 }

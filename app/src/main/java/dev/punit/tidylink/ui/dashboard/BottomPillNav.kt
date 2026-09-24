@@ -30,7 +30,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeState
 import dev.punit.tidylink.R
 import dev.punit.tidylink.ui.theme.Motion
 
@@ -38,9 +37,8 @@ import dev.punit.tidylink.ui.theme.Motion
 internal enum class DashboardTab { Links, Pinned, Tools, Settings }
 
 /**
- * Floating pill navigation: frosted glass over the scrolling content behind
- * it (real backdrop blur on API 31+, Haze's translucent fallback tint on
- * 10/11 - see GlassSurface). The selected tab is a tonal inner pill with
+ * Floating pill navigation: an elevated solid surface over the scrolling
+ * content behind it (see GlassSurface). The selected tab is a tonal inner pill with
  * icon + label and unselected tabs are label-only, plus a separate round
  * "+" button. Overlaid on content - the list scrolls underneath. The
  * selected pill uses the highest surface container tone (NOT
@@ -53,14 +51,12 @@ internal fun BottomPillNav(
     currentTab: DashboardTab,
     onSelect: (DashboardTab) -> Unit,
     onAdd: () -> Unit,
-    hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         GlassSurface(
-            hazeState = hazeState,
             shape = RoundedCornerShape(50),
-            elevation = 6.dp,
+            elevation = 8.dp,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -77,9 +73,8 @@ internal fun BottomPillNav(
         }
         Spacer(Modifier.width(10.dp))
         GlassSurface(
-            hazeState = hazeState,
             shape = CircleShape,
-            elevation = 6.dp,
+            elevation = 8.dp,
         ) {
             Box(
                 contentAlignment = Alignment.Center,

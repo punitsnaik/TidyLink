@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -23,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import dev.punit.tidylink.data.local.LinkEntity
@@ -83,6 +85,7 @@ internal fun LinksGrid(
     modifier: Modifier = Modifier,
     animateEntrance: Boolean = true,
     header: (@Composable () -> Unit)? = null,
+    emptyStateText: String? = null,
     topPadding: Dp = 12.dp,
 ) {
     // Entrance stagger only applies to the first screenful on launch; cards
@@ -112,6 +115,20 @@ internal fun LinksGrid(
                 contentType = "header",
             ) {
                 header()
+            }
+        }
+        if (emptyStateText != null && lazyLinks.itemCount == 0 && lazyLinks.loadState.refresh !is LoadState.Loading) {
+            item(
+                key = "empty_state",
+                span = { GridItemSpan(maxLineSpan) },
+                contentType = "empty_state",
+            ) {
+                EmptyState(
+                    text = emptyStateText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 48.dp, bottom = 48.dp),
+                )
             }
         }
         items(
