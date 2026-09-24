@@ -195,10 +195,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
 
-    // Frosted glass (backdrop blur)
-    implementation(libs.haze)
-    implementation(libs.haze.materials)
-
     // Device sync (Settings -> Pair device): QR scan of the Mac app's
     // pairing code. See app/src/main/java/dev/punit/tidylink/sync/.
     implementation(libs.zxing.embedded)
