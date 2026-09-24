@@ -46,6 +46,15 @@
     <!-- First-run intro -->
     <string name="intro_welcome_title">A tidy home for every link</string>
     <string name="intro_welcome_body">TidyLink collects the URLs you save all day and turns them into a searchable library. Everything stays on your device — no account, no backend, no analytics.</string>
+    <string name="intro_theme_title">Pick your look</string>
+    <string name="intro_theme_body">Tap a theme to try it — the whole app switches right away. You can change it later in Settings.</string>
+    <string name="intro_layout_title">How should cards look?</string>
+    <string name="intro_layout_body">Pick a layout and the swipe shortcuts you want. Both can be changed later in Settings.</string>
+    <string name="intro_layout_adaptive">Adaptive</string>
+    <string name="intro_layout_compact">Compact</string>
+    <string name="intro_import_title">Bring your links</string>
+    <string name="intro_import_body">Start with a full library: import browser bookmarks or a TidyLink backup. Then turn on weekly backups to a folder you choose, so your phone isn\'t the only copy.</string>
+    <string name="intro_backup_on">Weekly backup is on.</string>
     <string name="intro_share_title">Share to save</string>
     <string name="intro_share_body">Share a URL from any app — YouTube, Instagram, X, your browser — and pick TidyLink. It\'s saved before the share sheet closes. You can also add links by hand, or import a text file full of them.</string>
     <string name="intro_organize_title">Find it again</string>
@@ -75,6 +84,8 @@
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_theme_title">Theme</string>
     <string name="sheet_theme_title">Theme</string>
+    <string name="settings_dynamic_color_title">Wallpaper colors</string>
+    <string name="settings_dynamic_color_subtitle">Match the app\'s accent colors to your wallpaper (Material You)</string>
     <string name="theme_system">System default</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
@@ -211,6 +222,23 @@
     <string name="settings_section_about">About</string>
     <string name="settings_show_intro_title">Show intro again</string>
     <string name="settings_show_intro_subtitle">Replay the walkthrough you saw on first launch</string>
+    <string name="settings_whats_new_title">What\'s new</string>
+    <string name="settings_whats_new_subtitle">See the features added in this version</string>
+
+    <!-- What's new sheet: rewrite when bumping OnboardingStore.WHATS_NEW_VERSION -->
+    <string name="whats_new_title">What\'s new in TidyLink</string>
+    <string name="whats_new_done">Got it</string>
+    <string name="whats_new_look_title">Pick your look</string>
+    <string name="whats_new_look_body">Choose a theme and card layout from live previews, and turn on Wallpaper colors (Android 12+) in Settings. The status bar now follows the app theme. Replay the new setup from Settings → Show intro again.</string>
+    <string name="whats_new_swipe_title">Two-step swipe actions</string>
+    <string name="whats_new_swipe_body">Swipe a card partway to reveal Refresh (right) or Delete (left), then tap. Drag past the middle to do it in one motion. Swipe deletes can be undone.</string>
+    <string name="whats_new_tools_title">Link tools</string>
+    <string name="whats_new_tools_body">Open any link\'s details for a clean Reader view, a Wayback Machine snapshot, or a malware check against URLhaus. These only contact those services when you tap them.</string>
+    <string name="whats_new_search_title">Search that stays put</string>
+    <string name="whats_new_search_body">The search field now pins to the top as you scroll, the list runs edge to edge, and search also matches link URLs.</string>
+    <string name="tip_swipe_title">Tip: swipe a card</string>
+    <string name="tip_swipe_body">Swipe right to refresh a link or left to delete it. A short swipe reveals the button; a long one runs it.</string>
+    <string name="label_new_link_tools">New · Link tools</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_github_title">Source code &amp; issues</string>
     <string name="settings_github_subtitle">github.com/punitsnaik/TidyLink</string>
