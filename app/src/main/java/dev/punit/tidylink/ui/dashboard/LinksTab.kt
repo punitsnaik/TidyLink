@@ -57,6 +57,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.paging.compose.LazyPagingItems
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
@@ -65,6 +70,9 @@ import dev.punit.tidylink.ui.LinkUiState
 import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.launch
+
+// Top inset of the pinned search bar inside the Links tab.
+private val PINNED_SEARCH_TOP = 8.dp
 
 /** One in-grid header follows the content; no duplicate search field or hidden overlay. */
 @Composable
@@ -86,7 +94,29 @@ internal fun LinksTab(
     onOpenDetail: (String) -> Unit,
     onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
+    // Scaffold insets. Applied inside the grid, not around it, so the list
+    // scrolls edge to edge under the status and navigation bars.
+    insets: PaddingValues = PaddingValues(),
 ) {
+    val topInset = insets.calculateTopPadding()
+    val bottomInset = insets.calculateBottomPadding()
+    var inlineSearchY by remember { mutableFloatStateOf(Float.MAX_VALUE) }
+    // Sticky search: the pinned copy takes over the instant the inline bar's
+    // top reaches the pinned slot, in the same spot and color, with no
+    // animation - so it reads as one bar that stops at the top. Header is
+    // grid item 0; once it's recycled away the index check keeps it pinned.
+    val density = LocalDensity.current
+    var boxTopY by remember { mutableFloatStateOf(0f) }
+    val pinnedSlotPx = with(density) { (topInset + PINNED_SEARCH_TOP).toPx() }
+    val searchPinned by remember {
+        derivedStateOf {
+            !uiState.isSelectionMode && (
+                gridState.firstVisibleItemIndex > 0 ||
+                    inlineSearchY <= boxTopY + pinnedSlotPx
+                )
+        }
+    }
+
     // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
     // header stands down entirely - null, not an empty item, to keep the
     // grid's index mapping honest for the fast scroller.
@@ -106,19 +136,17 @@ internal fun LinksTab(
                 viewMode = viewMode,
                 onToggleViewMode = onToggleViewMode,
                 onShowAiProviders = onShowAiProviders,
+                onSearchPositioned = { inlineSearchY = it },
+                isSearchPinned = { searchPinned },
             )
         }
     }
 
-    // Header is grid item 0, so the pinned bar shows once it has scrolled away.
-    val headerScrolledAway by remember { derivedStateOf { gridState.firstVisibleItemIndex > 0 } }
-
-    Box(modifier = modifier) {
-        val density = LocalDensity.current
+    Box(modifier = modifier.onGloballyPositioned { boxTopY = it.positionInWindow().y }) {
         var progressBandHeight by remember { mutableStateOf(0.dp) }
         val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
         val bandExtra = if (bandVisible) progressBandHeight else 0.dp
-        val contentTop = (if (uiState.isSelectionMode) 12.dp else 8.dp) + bandExtra
+        val contentTop = topInset + (if (uiState.isSelectionMode) 12.dp else 8.dp) + bandExtra
 
         LinksGrid(
             lazyLinks = lazyLinks,
@@ -144,6 +172,7 @@ internal fun LinksTab(
                 }
             ),
             topPadding = contentTop,
+            bottomInset = bottomInset,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -153,7 +182,7 @@ internal fun LinksTab(
             visible = bandVisible,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
-            modifier = Modifier.padding(top = 0.dp),
+            modifier = Modifier.padding(top = topInset),
         ) {
             Column(
                 modifier = Modifier
@@ -180,27 +209,20 @@ internal fun LinksTab(
             }
         }
 
-        AnimatedVisibility(
-            visible = headerScrolledAway && !uiState.isSelectionMode,
-            enter = slideInVertically(
-                initialOffsetY = { -it },
-                animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
-            ) + fadeIn(animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing)),
-            exit = slideOutVertically(
-                targetOffsetY = { -it },
-                animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.ExitEasing),
-            ) + fadeOut(animationSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            SearchBar(
-                query = query,
-                onQueryChange = viewModel::search,
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        if (searchPinned) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = topInset + PINNED_SEARCH_TOP),
+            ) {
+                SearchBar(
+                    query = query,
+                    onQueryChange = viewModel::search,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }
@@ -223,6 +245,8 @@ private fun LinksHeader(
     viewMode: LibraryViewMode,
     onToggleViewMode: () -> Unit,
     onShowAiProviders: () -> Unit,
+    onSearchPositioned: (Float) -> Unit,
+    isSearchPinned: () -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -264,7 +288,11 @@ private fun LinksHeader(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 8.dp)
+                .onGloballyPositioned { onSearchPositioned(it.positionInWindow().y) }
+                // Hidden (not removed) while the pinned copy stands in, so
+                // the header keeps its height and nothing below shifts.
+                .graphicsLayer { alpha = if (isSearchPinned()) 0f else 1f },
         )
 
         // First-run guidance: links exist but AI categorization is off
