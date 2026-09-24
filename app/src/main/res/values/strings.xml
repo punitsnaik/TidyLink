@@ -231,6 +231,7 @@
     <string name="action_edit">Edit link</string>
     <string name="action_share">Share link</string>
     <string name="action_copy">Copy link</string>
+    <string name="action_refresh">Refresh</string>
     <string name="action_refresh_link">Refresh link</string>
     <string name="action_delete_link">Delete link</string>
     <string name="cta_open">Open %1$s</string>

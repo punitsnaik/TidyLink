@@ -78,15 +78,15 @@ internal fun LinksGrid(
     onRefreshLink: (LinkEntity) -> Unit,
     onImageFailed: (LinkEntity) -> Unit,
     onOpenDetail: (String) -> Unit,
-    // Deletes are routed up to DashboardScreen's confirmation dialog rather
-    // than straight to the ViewModel - a swipe is far too easy to trigger by
-    // accident for a one-way trip, undo snackbar or not.
+    // Swipe/tap deletes go straight through; the undo snackbar covers mistakes.
     onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
     animateEntrance: Boolean = true,
     header: (@Composable () -> Unit)? = null,
     emptyStateText: String? = null,
     topPadding: Dp = 12.dp,
+    // System nav-bar inset: the grid draws under the bar and pads past it.
+    bottomInset: Dp = 0.dp,
 ) {
     // Entrance stagger only applies to the first screenful on launch; cards
     // composed later (while scrolling) must not re-animate or scrolling
@@ -99,11 +99,16 @@ internal fun LinksGrid(
     // Adaptive grid: one column on phones, two-plus on tablets/landscape,
     // without stretching cards too wide. The extra bottom padding keeps the
     // floating pill nav from covering the last row.
+    // Only one card's swipe actions may be open; scrolling closes it.
+    var openCardId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(gridState.isScrollInProgress) {
+        if (gridState.isScrollInProgress) openCardId = null
+    }
     Box(modifier = modifier) {
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Adaptive(minSize = 340.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = 120.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = 120.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
@@ -161,6 +166,10 @@ internal fun LinksGrid(
                     }
                 },
                 onLongClick = { onToggleSelection(link.id) },
+                isOpen = openCardId == link.id,
+                onOpenChange = { open ->
+                    openCardId = if (open) link.id else openCardId.takeUnless { it == link.id }
+                },
                 modifier = Modifier.animateItem(
                     fadeInSpec = tween(Motion.FADE_IN_MS, easing = Motion.EnterEasing),
                     fadeOutSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing),
@@ -183,7 +192,7 @@ internal fun LinksGrid(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .padding(top = topPadding, bottom = 96.dp),
+                .padding(top = topPadding, bottom = 96.dp + bottomInset),
         )
     }
 }
