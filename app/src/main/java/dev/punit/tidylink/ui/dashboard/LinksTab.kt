@@ -2,6 +2,8 @@ package dev.punit.tidylink.ui.dashboard
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -55,6 +57,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.paging.compose.LazyPagingItems
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
@@ -64,8 +71,8 @@ import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.launch
 
-/** Gutter shared by the grid's contentPadding and the empty-state header. */
-private val HEADER_GUTTER = 16.dp
+// Top inset of the pinned search bar inside the Links tab.
+private val PINNED_SEARCH_TOP = 8.dp
 
 /** One in-grid header follows the content; no duplicate search field or hidden overlay. */
 @Composable
@@ -87,7 +94,29 @@ internal fun LinksTab(
     onOpenDetail: (String) -> Unit,
     onRequestDelete: (LinkEntity) -> Unit,
     modifier: Modifier = Modifier,
+    // Scaffold insets. Applied inside the grid, not around it, so the list
+    // scrolls edge to edge under the status and navigation bars.
+    insets: PaddingValues = PaddingValues(),
 ) {
+    val topInset = insets.calculateTopPadding()
+    val bottomInset = insets.calculateBottomPadding()
+    var inlineSearchY by remember { mutableFloatStateOf(Float.MAX_VALUE) }
+    // Sticky search: the pinned copy takes over the instant the inline bar's
+    // top reaches the pinned slot, in the same spot and color, with no
+    // animation - so it reads as one bar that stops at the top. Header is
+    // grid item 0; once it's recycled away the index check keeps it pinned.
+    val density = LocalDensity.current
+    var boxTopY by remember { mutableFloatStateOf(0f) }
+    val pinnedSlotPx = with(density) { (topInset + PINNED_SEARCH_TOP).toPx() }
+    val searchPinned by remember {
+        derivedStateOf {
+            !uiState.isSelectionMode && (
+                gridState.firstVisibleItemIndex > 0 ||
+                    inlineSearchY <= boxTopY + pinnedSlotPx
+                )
+        }
+    }
+
     // Selection mode swaps in the Scaffold's contextual TopAppBar, so the
     // header stands down entirely - null, not an empty item, to keep the
     // grid's index mapping honest for the fast scroller.
@@ -107,58 +136,45 @@ internal fun LinksTab(
                 viewMode = viewMode,
                 onToggleViewMode = onToggleViewMode,
                 onShowAiProviders = onShowAiProviders,
+                onSearchPositioned = { inlineSearchY = it },
+                isSearchPinned = { searchPinned },
             )
         }
     }
 
-    Box(modifier = modifier) {
-        val density = LocalDensity.current
+    Box(modifier = modifier.onGloballyPositioned { boxTopY = it.positionInWindow().y }) {
         var progressBandHeight by remember { mutableStateOf(0.dp) }
         val bandVisible = uiState.isProcessing || uiState.pendingEnrichment > 0
         val bandExtra = if (bandVisible) progressBandHeight else 0.dp
-        val contentTop = (if (uiState.isSelectionMode) 12.dp else 8.dp) + bandExtra
+        val contentTop = topInset + (if (uiState.isSelectionMode) 12.dp else 8.dp) + bandExtra
 
-        val listIsEmpty = lazyLinks.itemCount == 0 &&
-            lazyLinks.loadState.refresh !is LoadState.Loading
-        if (listIsEmpty) {
-            Column(modifier = Modifier.padding(top = contentTop)) {
-                header?.let {
-                    Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
+        LinksGrid(
+            lazyLinks = lazyLinks,
+            gridState = gridState,
+            // Three fields, not the whole state - see LinksGrid's KDoc.
+            selectedIds = uiState.selectedIds,
+            refreshingIds = uiState.refreshingIds,
+            isSelectionMode = uiState.isSelectionMode,
+            viewMode = viewMode,
+            cardRefreshSwipe = cardRefreshSwipe,
+            cardDeleteSwipe = cardDeleteSwipe,
+            onToggleSelection = viewModel::toggleSelection,
+            onRefreshLink = viewModel::refreshLink,
+            onImageFailed = viewModel::recoverThumbnail,
+            onOpenDetail = onOpenDetail,
+            onRequestDelete = onRequestDelete,
+            header = header,
+            emptyStateText = stringResource(
+                if (query.isNotBlank() || uiState.selectedCategory != null) {
+                    R.string.empty_filtered
+                } else {
+                    R.string.empty_no_links
                 }
-                EmptyState(
-                    text = stringResource(
-                        if (query.isNotBlank() || uiState.selectedCategory != null) {
-                            R.string.empty_filtered
-                        } else {
-                            R.string.empty_no_links
-                        }
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                )
-            }
-        } else {
-            LinksGrid(
-                lazyLinks = lazyLinks,
-                gridState = gridState,
-                // Three fields, not the whole state - see LinksGrid's KDoc.
-                selectedIds = uiState.selectedIds,
-                refreshingIds = uiState.refreshingIds,
-                isSelectionMode = uiState.isSelectionMode,
-                viewMode = viewMode,
-                cardRefreshSwipe = cardRefreshSwipe,
-                cardDeleteSwipe = cardDeleteSwipe,
-                onToggleSelection = viewModel::toggleSelection,
-                onRefreshLink = viewModel::refreshLink,
-                onImageFailed = viewModel::recoverThumbnail,
-                onOpenDetail = onOpenDetail,
-                onRequestDelete = onRequestDelete,
-                header = header,
-                topPadding = contentTop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+            ),
+            topPadding = contentTop,
+            bottomInset = bottomInset,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         // Progress overlays the grid just below the search bar - thin, and
         // only present while work is running.
@@ -166,7 +182,7 @@ internal fun LinksTab(
             visible = bandVisible,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
-            modifier = Modifier.padding(top = 0.dp),
+            modifier = Modifier.padding(top = topInset),
         ) {
             Column(
                 modifier = Modifier
@@ -193,6 +209,21 @@ internal fun LinksTab(
             }
         }
 
+        if (searchPinned) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = topInset + PINNED_SEARCH_TOP),
+            ) {
+                SearchBar(
+                    query = query,
+                    onQueryChange = viewModel::search,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 
@@ -214,6 +245,8 @@ private fun LinksHeader(
     viewMode: LibraryViewMode,
     onToggleViewMode: () -> Unit,
     onShowAiProviders: () -> Unit,
+    onSearchPositioned: (Float) -> Unit,
+    isSearchPinned: () -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -252,9 +285,14 @@ private fun LinksHeader(
         SearchBar(
             query = query,
             onQueryChange = viewModel::search,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 8.dp)
+                .onGloballyPositioned { onSearchPositioned(it.positionInWindow().y) }
+                // Hidden (not removed) while the pinned copy stands in, so
+                // the header keeps its height and nothing below shifts.
+                .graphicsLayer { alpha = if (isSearchPinned()) 0f else 1f },
         )
 
         // First-run guidance: links exist but AI categorization is off

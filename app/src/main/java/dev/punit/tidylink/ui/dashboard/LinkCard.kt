@@ -12,10 +12,17 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -43,14 +50,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -60,6 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
@@ -69,6 +77,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.rememberAsyncImagePainter
@@ -80,10 +89,18 @@ import dev.punit.tidylink.data.scraper.availableRelatedLinks
 import dev.punit.tidylink.data.settings.LibraryViewMode
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import kotlin.math.roundToInt
 
 private const val TITLE_MAX_LINES = 2
+
+// Swipe actions: width of the revealed button, and how far (fraction of card
+// width) a drag must travel to run the action without tapping the button.
+private val SWIPE_REVEAL_WIDTH = 104.dp
+private val SWIPE_PANEL_GAP = 8.dp
+private const val FULL_SWIPE_FRACTION = 0.6f
 
 // Keep summaries concise even when portrait media makes a card taller.
 private const val SUMMARY_MAX_LINES = 3
@@ -106,6 +123,8 @@ internal fun LinkCard(
     onDelete: () -> Unit,
     onImageFailed: () -> Unit,
     modifier: Modifier = Modifier,
+    isOpen: Boolean = false,
+    onOpenChange: (Boolean) -> Unit = {},
 ) {
     // Press feedback: card gently scales down while held.
     val interactionSource = remember { MutableInteractionSource() }
@@ -149,27 +168,38 @@ internal fun LinkCard(
         label = "containerColor",
     )
 
-    // Swipe right = refresh, swipe left = delete. confirmValueChange always
-    // returns false so the card springs back; deletion is animated by the
-    // list itself (and remains undoable via the snackbar). The action only
-    // triggers past HALF the card width, with a haptic tick at the
-    // threshold, so accidental part-swipes don't delete anything.
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> onRefresh()
-                SwipeToDismissBoxValue.EndToStart -> onDelete()
-                SwipeToDismissBoxValue.Settled -> Unit
-            }
-            false
-        },
-        positionalThreshold = { totalDistance -> totalDistance * 0.5f },
-    )
+    // Amazon-cart style swipe. A partial drag snaps open to reveal a
+    // Refresh (right) or Delete (left) button that must be tapped; a long
+    // drag past FULL_SWIPE_FRACTION of the card runs the action directly.
+    // Fling velocity is deliberately ignored - a quick flick only reveals.
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val revealPx = with(density) { SWIPE_REVEAL_WIDTH.toPx() }
+    var cardWidth by remember { mutableIntStateOf(0) }
+    val offset = remember { Animatable(0f) }
+    val canRefresh = showActions && cardRefreshSwipe
+    val canDelete = showActions && cardDeleteSwipe
+    val fullSwipePx = cardWidth * FULL_SWIPE_FRACTION
+    val pastFull = cardWidth > 0 && kotlin.math.abs(offset.value) > fullSwipePx
     val haptics = LocalHapticFeedback.current
-    LaunchedEffect(dismissState.targetValue) {
-        if (dismissState.targetValue != SwipeToDismissBoxValue.Settled) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
+    LaunchedEffect(pastFull) {
+        if (pastFull) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    // Another card opened (or the list scrolled): close this one.
+    LaunchedEffect(isOpen) {
+        if (!isOpen && offset.value != 0f) offset.animateTo(0f)
+    }
+    LaunchedEffect(showActions) {
+        if (!showActions) offset.snapTo(0f)
+    }
+    fun close() {
+        onOpenChange(false)
+        scope.launch { offset.animateTo(0f) }
+    }
+    val dragState = rememberDraggableState { delta ->
+        val min = if (canDelete) -cardWidth.toFloat() else 0f
+        val max = if (canRefresh) cardWidth.toFloat() else 0f
+        scope.launch { offset.snapTo((offset.value + delta).coerceIn(min, max)) }
     }
 
     // TalkBack / switch-access parity for the swipe gestures.
@@ -177,42 +207,56 @@ internal fun LinkCard(
     val deleteActionLabel = stringResource(R.string.action_delete_link)
     val selectedStateLabel = stringResource(R.string.cd_selected)
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = showActions && cardRefreshSwipe,
-        enableDismissFromEndToStart = showActions && cardDeleteSwipe,
-        modifier = modifier.fillMaxWidth(),
-        backgroundContent = {
-            // Nothing to draw unless a swipe is in progress (the card is
-            // semi-transparent during its entrance animation).
-            if (dismissState.dismissDirection == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
-            val isDelete = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-            Box(
-                contentAlignment = if (isDelete) Alignment.CenterEnd else Alignment.CenterStart,
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { cardWidth = it.width },
+    ) {
+        // Action button: fixed width on both sides, anchored to the outer
+        // edge. The card slides off it to uncover it; dragging further only
+        // widens the gap, never the button.
+        if (offset.value != 0f) {
+            val isDelete = offset.value < 0f
+            val panelWidth = SWIPE_REVEAL_WIDTH - SWIPE_PANEL_GAP
+            val panelColor = if (isDelete) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            }
+            val onPanel = if (isDelete) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .fillMaxSize()
+                    .matchParentSize()
+                    .wrapContentWidth(if (isDelete) Alignment.End else Alignment.Start)
+                    .width(panelWidth)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(
-                        if (isDelete) {
-                            MaterialTheme.colorScheme.errorContainer
-                        } else {
-                            MaterialTheme.colorScheme.primaryContainer
-                        }
-                    )
-                    .padding(horizontal = 28.dp),
+                    .background(panelColor)
+                    .clickable(onClickLabel = if (isDelete) deleteActionLabel else refreshActionLabel) {
+                        close()
+                        if (isDelete) onDelete() else onRefresh()
+                    },
             ) {
                 Icon(
                     if (isDelete) Icons.Default.Delete else Icons.Default.Refresh,
-                    contentDescription = if (isDelete) deleteActionLabel else refreshActionLabel,
-                    tint = if (isDelete) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    },
+                    contentDescription = null,
+                    tint = onPanel,
+                )
+                Text(
+                    text = stringResource(if (isDelete) R.string.action_delete else R.string.action_refresh),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = onPanel,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
-        },
-    ) {
+        }
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = containerColor),
@@ -220,6 +264,26 @@ internal fun LinkCard(
             border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
             modifier = Modifier
                 .fillMaxWidth()
+                .offset { IntOffset(offset.value.roundToInt(), 0) }
+                .draggable(
+                    state = dragState,
+                    orientation = Orientation.Horizontal,
+                    enabled = canRefresh || canDelete,
+                    onDragStopped = {
+                        val x = offset.value
+                        when {
+                            cardWidth > 0 && kotlin.math.abs(x) > fullSwipePx -> {
+                                close()
+                                if (x < 0f) onDelete() else onRefresh()
+                            }
+                            kotlin.math.abs(x) > revealPx / 2 -> {
+                                onOpenChange(true)
+                                offset.animateTo(if (x < 0f) -revealPx else revealPx)
+                            }
+                            else -> close()
+                        }
+                    },
+                )
                 .graphicsLayer {
                     val progress = entrance?.value ?: 1f
                     alpha = progress
@@ -230,7 +294,7 @@ internal fun LinkCard(
                 .combinedClickable(
                     interactionSource = interactionSource,
                     indication = null,
-                    onClick = onClick,
+                    onClick = { if (offset.value != 0f) close() else onClick() },
                     onLongClick = onLongClick,
                 )
                 .semantics {

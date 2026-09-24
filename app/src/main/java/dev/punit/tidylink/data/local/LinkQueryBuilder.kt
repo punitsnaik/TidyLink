@@ -36,16 +36,27 @@ object LinkQueryBuilder {
         category: String?,
         sort: SortOrder,
     ): SimpleSQLiteQuery {
-        val fts = sanitizeFtsQuery(searchQuery)
+        val trimmed = searchQuery.trim()
+        val fts = sanitizeFtsQuery(trimmed)
+        val like = "%${escapeLike(trimmed)}%"
         val args = mutableListOf<Any>()
         val conditions = mutableListOf<String>()
 
         val from = "SELECT * FROM links"
-        if (fts.isNotEmpty()) {
-            conditions += "(links.rowid IN (SELECT rowid FROM links_fts WHERE links_fts MATCH ?) " +
-                "OR links.relatedLinksJson LIKE ? ESCAPE '\\')"
-            args += fts
-            args += "%${escapeLike(searchQuery.trim())}%"
+        if (trimmed.isNotEmpty()) {
+            val parts = mutableListOf<String>()
+            if (fts.isNotEmpty()) {
+                parts += "links.rowid IN (SELECT rowid FROM links_fts WHERE links_fts MATCH ?)"
+                args += fts
+            }
+            // FTS already covers title/note; LIKE only stands in when it is empty.
+            val likeColumns = (if (fts.isEmpty()) listOf("title", "note") else emptyList()) +
+                listOf("url", "resolvedUrl", "relatedLinksJson")
+            for (column in likeColumns) {
+                parts += "links.$column LIKE ? ESCAPE '\\'"
+                args += like
+            }
+            conditions += "(${parts.joinToString(" OR ")})"
         }
 
         if (category != null) {
@@ -58,7 +69,12 @@ object LinkQueryBuilder {
             if (conditions.isNotEmpty()) {
                 append(" WHERE ").append(conditions.joinToString(" AND "))
             }
-            append(" ORDER BY links.pinned DESC, ").append(sort.orderBy)
+            append(" ORDER BY links.pinned DESC")
+            if (trimmed.isNotEmpty()) {
+                append(", (CASE WHEN links.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END)")
+                args += like
+            }
+            append(", ").append(sort.orderBy)
         }
         return SimpleSQLiteQuery(sql, args.toTypedArray())
     }
