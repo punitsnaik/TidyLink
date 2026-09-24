@@ -39,8 +39,11 @@ class LinkQueryBuilderTest {
     fun `search joins fts and binds the sanitized query`() {
         val query = LinkQueryBuilder.build("kotl", category = null, sort = SortOrder.TITLE_AZ)
         assertTrue(query.sql.contains("links_fts MATCH ?"))
+        assertTrue(query.sql.contains("links.url LIKE ?"))
+        assertTrue(query.sql.contains("links.resolvedUrl LIKE ?"))
         assertTrue(query.sql.contains("relatedLinksJson LIKE ?"))
-        assertEquals(2, query.argCount)
+        assertTrue(query.sql.contains("links.title LIKE ?"))
+        assertEquals(5, query.argCount)
     }
 
     @Test
@@ -48,7 +51,7 @@ class LinkQueryBuilderTest {
         val query = LinkQueryBuilder.build("kotl", category = "Dev", sort = SortOrder.NEWEST)
         assertTrue(query.sql.contains("links_fts MATCH ?"))
         assertTrue(query.sql.contains("links.category = ?"))
-        assertEquals(3, query.argCount)
+        assertEquals(6, query.argCount)
     }
 
     /**
@@ -58,7 +61,36 @@ class LinkQueryBuilderTest {
     @Test
     fun `search and category bind in the order they appear in the sql`() {
         val query = LinkQueryBuilder.build("kotl", category = "Dev", sort = SortOrder.NEWEST)
-        assertEquals(listOf("kotl*", "%kotl%", "Dev"), boundArgs(query))
+        assertEquals(listOf("kotl*", "%kotl%", "%kotl%", "%kotl%", "Dev", "%kotl%"), boundArgs(query))
+    }
+
+    @Test
+    fun `search with url protocol strips protocol from multi-word fts and matches url`() {
+        val query = LinkQueryBuilder.build("https://github.com/torvalds", category = null, sort = SortOrder.NEWEST)
+        assertTrue(query.sql.contains("links_fts MATCH ?"))
+        assertTrue(query.sql.contains("links.url LIKE ?"))
+        assertEquals("github* com* torvalds*", boundArgs(query)[0])
+        assertEquals("%https://github.com/torvalds%", boundArgs(query)[1])
+    }
+
+    @Test
+    fun `search with no alphanumeric tokens falls back to like without dropping query`() {
+        val query = LinkQueryBuilder.build("///", category = null, sort = SortOrder.NEWEST)
+        assertFalse(query.sql.contains("links_fts"))
+        assertTrue(query.sql.contains("links.title LIKE ?"))
+        assertTrue(query.sql.contains("links.url LIKE ?"))
+        assertTrue(query.sql.contains("links.resolvedUrl LIKE ?"))
+        assertTrue(query.sql.contains("links.note LIKE ?"))
+    }
+
+    @Test
+    fun `search orders by title match relevance before sort order`() {
+        val query = LinkQueryBuilder.build("compose", category = null, sort = SortOrder.NEWEST)
+        assertTrue(
+            query.sql.contains(
+                "ORDER BY links.pinned DESC, (CASE WHEN links.title LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END), links.timestamp DESC"
+            )
+        )
     }
 
     /**
