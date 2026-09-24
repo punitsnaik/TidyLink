@@ -37,3 +37,8 @@ RELEASE_GUIDE.md
 .superpowers/
 .gstack/
 /AGENTS.md
+
+# Session/tool output written into the repo root by helper skills. Large
+# binaries (video, screen recordings) that belong on disk, never in the repo.
+/brag-output/
+screen-*.mp4
