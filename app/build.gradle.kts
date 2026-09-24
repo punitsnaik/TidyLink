@@ -28,7 +28,7 @@ val keystoreProps = Properties().apply {
 android {
     namespace = "dev.punit.tidylink"
     compileSdk {
-        version = release(36) {
+        version = release(37) {
             minorApiLevel = 1
         }
     }
