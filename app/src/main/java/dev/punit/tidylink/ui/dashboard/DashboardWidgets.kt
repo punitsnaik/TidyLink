@@ -50,6 +50,24 @@ internal fun AddProviderBanner(
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+) = TipBanner(
+    title = stringResource(R.string.banner_add_provider_title),
+    body = stringResource(R.string.banner_add_provider_body),
+    onDismiss = onDismiss,
+    actionLabel = stringResource(R.string.banner_add_provider_action),
+    onAction = onAdd,
+    modifier = modifier,
+)
+
+/** Header card with a title, a line of help, Dismiss, and an optional action. */
+@Composable
+internal fun TipBanner(
+    title: String,
+    body: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -60,13 +78,13 @@ internal fun AddProviderBanner(
     ) {
         Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
             Text(
-                text = stringResource(R.string.banner_add_provider_title),
+                text = title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = stringResource(R.string.banner_add_provider_body),
+                text = body,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -77,8 +95,10 @@ internal fun AddProviderBanner(
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.action_dismiss))
                 }
-                TextButton(onClick = onAdd) {
-                    Text(stringResource(R.string.banner_add_provider_action))
+                if (actionLabel != null) {
+                    TextButton(onClick = onAction) {
+                        Text(actionLabel)
+                    }
                 }
             }
         }

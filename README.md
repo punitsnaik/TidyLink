@@ -65,11 +65,14 @@ Room database (FTS4 + Paging 3) ──► Compose UI
 - **Built to scale** - the list is paged (Paging 3) with all filtering and sorting done in SQLite, so a 10,000-link library scrolls like a 100-link one.
 - **Category tiles** - icon + label tiles filter by any category with one tap; an overflow sheet keeps large taxonomies manageable. "Tidy up categories" merges near-duplicates offline and, when needed, asks the LLM for a semantic merge.
 - **Rich link cards** - adaptive grid (one column on phones, more on tablets) with thumbnails, category badges, and summaries; tap a card for a full detail sheet with in-place refresh.
+- **Themes** - Light, Dark, AMOLED black, or follow the system, plus optional **Wallpaper colors** (Material You, Android 12+). The status and navigation bars follow the app's theme.
 - **Floating pill navigation** - a Google Photos style pill bar with Links, Pinned, and Settings tabs plus a round add button; the list scrolls underneath it.
-- **Distraction-free reading** - the title bar, search field, and filters are the list's first item, so they scroll away 1:1 with your finger and come back when you return to the top.
+- **Distraction-free reading** - the title bar, banners, and filters scroll away 1:1 with your finger, while the search field pins below the status bar the moment it reaches the top. The list runs edge to edge, under the status and navigation bars.
 - **Fast scroller** - a draggable thumb appears at the right edge while scrolling; drag it to fly through the library, with a bubble showing the saved month as you go.
 - **Video-aware** - YouTube, Shorts, Reels, TikTok, and Vimeo links get a play action; links open in the native app when installed, otherwise in a Chrome Custom Tab.
-- **Multi-select & undo** - long-press to select multiple links, then bulk delete, re-categorize, or mark as read. Undo from the snackbar. Swipe a card right to refresh it, left to delete.
+- **Multi-select & undo** - long-press to select multiple links, then bulk delete, re-categorize, or mark as read. Undo from the snackbar.
+- **Two-step swipe actions** - swipe a card partway to reveal a labelled Refresh (right) or Delete (left) button and tap it; drag past the middle of the card to run the action in one motion. Quick flicks only reveal, only one card stays open, and scrolling closes it. Swipe deletes are undoable from the snackbar.
+- **Link tools** - from a link's detail sheet: a clean **Reader view** of the article with reading time, a **Wayback Machine** lookup (or save a fresh snapshot), and a **safety scan** against the URLhaus malware list. A library tool enriches GitHub repository links with stars, language, and description.
 - **Trash** - deleting is reversible: links go to a trash that keeps them for 90 days, restorable individually or from the undo snackbar. Trashed links are excluded from search, categories and exports.
 - **Pin & sort** - pin favorites to float above the list, or browse just them in the dedicated Pinned tab; sort by date, title, or category.
 - **Backup & restore** - export the whole library as JSON and import it back on any device, or switch on automatic weekly backups to a folder you choose. The last three backups are kept.
@@ -77,7 +80,7 @@ Room database (FTS4 + Paging 3) ──► Compose UI
 - **Your own notes** - every link has room for a note in your own words, kept visually distinct from the AI summary and indexed for search.
 - **Merge duplicates** - find copies of the same page saved under different URLs and fold them into one, keeping the richest version of each field.
 - **Offline-resilient** - links saved while offline or rate-limited are stored immediately and enriched automatically by WorkManager when the network returns.
-- **First-run walkthrough** - a short intro on first launch covers sharing, search, and the optional AI setup, with a step to add a key on the spot. Skippable, and replayable any time from Settings → About → "Show intro again".
+- **First-run walkthrough** - a short intro on first launch covers sharing, search, and the optional AI setup, with steps to pick a theme (Light, Dark, AMOLED, or System) and card layout from live previews, choose swipe shortcuts, import bookmarks or a backup, turn on weekly backups, and add a key on the spot. Skippable, and replayable any time from Settings → About → "Show intro again". After an update with new features, a one-time **What's new** sheet explains them (also in Settings → "What's new"), and one-time hints point out new gestures and tools.
 
 ## Prerequisites
 
@@ -124,13 +127,14 @@ Without a provider configured, nothing is ever sent anywhere and links simply st
 
 ## Privacy
 
-TidyLink has no backend and no analytics. Five things leave your device, all in service of features you can see:
+TidyLink has no backend and no analytics. Six things leave your device, all in service of features you can see:
 
 1. **Saved URLs → their websites.** TidyLink fetches each saved page directly to read its title, description, thumbnail, final redirect destination, and up to eight useful direct links. It never recursively crawls those links.
 2. **Link metadata → your AI provider.** Saved URLs, titles, descriptions, extracted candidate URLs and short contextual excerpts are sent to the LLM endpoint *you* configured for categorization and useful-link filtering. Existing links are also processed in bounded background batches; decisions are cached. No provider configured → no AI requests are sent.
 3. **Link domains → Google.** Cards without a thumbnail show a favicon fetched from `google.com/s2/favicons`.
 4. **YouTube URLs → YouTube oEmbed** for reliable titles and thumbnails.
 5. **An update check → GitHub.** At most once a week (or when you tap *Check for updates* in Settings), the app asks `api.github.com` for the latest release - an unauthenticated GET that sends nothing about you or your links. Downloading an update fetches the APK from the same GitHub release.
+6. **Link tools, only when you tap them.** *Wayback Machine* sends the link's URL to `archive.org`; *safety scan* sends it to `urlhaus-api.abuse.ch`; *Enrich GitHub repositories* asks `api.github.com` about the GitHub repo links in your library. Nothing is sent until you run a tool.
 
 API keys are encrypted at rest with a hardware-backed Android Keystore key and are excluded from cloud backups and device transfers.
 

@@ -62,6 +62,8 @@ internal fun SettingsTab(
     cardDeleteSwipe: Boolean,
     pageSwipeNavigation: Boolean,
     onThemeClick: () -> Unit,
+    dynamicColor: Boolean,
+    onDynamicColorChange: (Boolean) -> Unit,
     onCardRefreshSwipeChange: (Boolean) -> Unit,
     onCardDeleteSwipeChange: (Boolean) -> Unit,
     onPageSwipeNavigationChange: (Boolean) -> Unit,
@@ -72,6 +74,7 @@ internal fun SettingsTab(
     backupState: BackupState,
     onToggleAutoBackup: () -> Unit,
     onShowIntro: () -> Unit,
+    onShowWhatsNew: () -> Unit,
     onOpenRepo: () -> Unit,
     updateState: UpdateState,
     onUpdateClick: () -> Unit,
@@ -101,6 +104,20 @@ internal fun SettingsTab(
                 subtitle = themeLabel(themeMode),
                 onClick = onThemeClick,
             )
+            // Material You needs API 31; AMOLED keeps its pure-black palette.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+                themeMode != ThemeMode.AMOLED
+            ) {
+                SettingsDivider()
+                SettingsItem(
+                    title = stringResource(R.string.settings_dynamic_color_title),
+                    subtitle = stringResource(R.string.settings_dynamic_color_subtitle),
+                    onClick = { onDynamicColorChange(!dynamicColor) },
+                    trailing = {
+                        Switch(checked = dynamicColor, onCheckedChange = onDynamicColorChange)
+                    },
+                )
+            }
             SettingsDivider()
             SettingsItem(
                 title = stringResource(R.string.settings_card_refresh_swipe_title),
@@ -184,6 +201,12 @@ internal fun SettingsTab(
                 title = stringResource(R.string.settings_show_intro_title),
                 subtitle = stringResource(R.string.settings_show_intro_subtitle),
                 onClick = onShowIntro,
+            )
+            SettingsDivider()
+            SettingsItem(
+                title = stringResource(R.string.settings_whats_new_title),
+                subtitle = stringResource(R.string.settings_whats_new_subtitle),
+                onClick = onShowWhatsNew,
             )
             SettingsDivider()
             SettingsItem(

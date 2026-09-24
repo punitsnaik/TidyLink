@@ -802,6 +802,18 @@ class LinkViewModel(
         onboardingStore.replayIntro()
     }
 
+    /** Shown once after an upgrade that has news; replayable from Settings. */
+    val whatsNewOpen: StateFlow<Boolean> = onboardingStore.whatsNewOpen
+
+    fun openWhatsNew() = onboardingStore.openWhatsNew()
+
+    fun dismissWhatsNew() = onboardingStore.dismissWhatsNew()
+
+    /** One-time hints the user has dismissed; see [OnboardingStore.TIP_SWIPE]. */
+    val seenTips: StateFlow<Set<String>> = onboardingStore.seenTips
+
+    fun markTipSeen(tip: String) = onboardingStore.markTipSeen(tip)
+
     // --- Theme -----------------------------------------------------------
 
     /** Settings → Appearance. Read synchronously by [ThemeStore] on startup. */
@@ -810,6 +822,10 @@ class LinkViewModel(
     fun setThemeMode(mode: ThemeMode) {
         themeStore.setThemeMode(mode)
     }
+
+    val dynamicColor: StateFlow<Boolean> = themeStore.dynamicColor
+
+    fun setDynamicColor(enabled: Boolean) = themeStore.setDynamicColor(enabled)
 
     val libraryViewMode: StateFlow<LibraryViewMode> = uiPreferencesStore.libraryViewMode
     val cardRefreshSwipe: StateFlow<Boolean> = uiPreferencesStore.cardRefreshSwipe

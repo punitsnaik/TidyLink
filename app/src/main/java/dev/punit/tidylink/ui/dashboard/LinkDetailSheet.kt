@@ -135,6 +135,8 @@ internal fun LinkDetailSheet(
     onReaderMode: (String) -> Unit = {},
     onWayback: (String) -> Unit = {},
     onCheckSafety: (String) -> Unit = {},
+    /** Flags the tool row as new until any tool is used once. */
+    toolsNew: Boolean = false,
     feedback: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -471,6 +473,15 @@ internal fun LinkDetailSheet(
 
                 // Public API actions for this link
                 Spacer(Modifier.height(16.dp))
+                if (toolsNew) {
+                    Text(
+                        text = stringResource(R.string.label_new_link_tools),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
