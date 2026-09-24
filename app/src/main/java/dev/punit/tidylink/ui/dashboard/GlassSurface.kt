@@ -15,21 +15,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
-import dev.chrisbanes.haze.materials.HazeMaterials
 
-/**
- * Frosted surface: real backdrop blur of the content behind it on API 31+,
- * opaque surfaceContainerHighest below API 31. Must be a SIBLING of the
- * hazeSource node, never a descendant - a descendant would capture its own
- * pixels into the blur.
- */
-@OptIn(ExperimentalHazeMaterialsApi::class)
+/** Elevated, outlined surface on the opaque surfaceContainerHighest tone. */
 @Composable
 internal fun GlassSurface(
-    hazeState: HazeState,
     shape: Shape,
     modifier: Modifier = Modifier,
     elevation: Dp = 0.dp,
@@ -37,24 +26,18 @@ internal fun GlassSurface(
 ) {
     Box(
         modifier = modifier
-            .shadow(elevation, shape, clip = false)
-            .clip(shape)
-            .then(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Modifier.hazeEffect(
-                        state = hazeState,
-                        style = HazeMaterials.thin(MaterialTheme.colorScheme.surface),
-                    )
-                } else {
-                    // No blur below S: Haze's thin tint alone is too
-                    // transparent for text on top of it. Fall back to the
-                    // opaque high tone the pre-glass design used.
-                    Modifier.background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                }
+            .shadow(
+                elevation = elevation,
+                shape = shape,
+                clip = false,
+                ambientColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
+                spotColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
             )
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                width = 1.25.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
                 shape = shape,
             ),
     ) {
@@ -64,7 +47,7 @@ internal fun GlassSurface(
 
 /**
  * Container color for the dashboard's modal sheets. Sheets render in
- * their own window, so Haze cannot blur through them - instead
+ * their own window, so a blur cannot reach through them - instead
  * DashboardScreen blurs the content BEHIND the open sheet, and this
  * translucent container lets that blur read through the sheet like
  * frosted glass. Below API 31 Modifier.blur is a no-op, so the sheet

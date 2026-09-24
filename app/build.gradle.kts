@@ -52,8 +52,8 @@ android {
         // reads as "not an upgrade", so installs of the old APK are stranded
         // with no path forward. versionName is the cosmetic string users see;
         // keep it in step with the v* git tag that triggers release.yml.
-        versionCode = 14
-        versionName = "1.4.2"
+        versionCode = 15
+        versionName = "1.4.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -194,10 +194,6 @@ dependencies {
     // Images
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
-
-    // Frosted glass (backdrop blur)
-    implementation(libs.haze)
-    implementation(libs.haze.materials)
 
     // Device sync (Settings -> Pair device): QR scan of the Mac app's
     // pairing code. See app/src/main/java/dev/punit/tidylink/sync/.
