@@ -63,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -212,9 +213,11 @@ internal fun LinkCard(
             .fillMaxWidth()
             .onSizeChanged { cardWidth = it.width },
     ) {
-        // Action button: fixed width on both sides, anchored to the outer
-        // edge. The card slides off it to uncover it; dragging further only
-        // widens the gap, never the button.
+        // Action button: fixed width, riding just behind the card's edge
+        // (with a small gap) so it slides in alongside the card and is never
+        // covered by it. Once fully revealed it parks at the outer edge;
+        // dragging further only widens the gap. Clipped to the card's bounds
+        // so it can't peek into the list gutter while hidden.
         if (offset.value != 0f) {
             val isDelete = offset.value < 0f
             val panelWidth = SWIPE_REVEAL_WIDTH - SWIPE_PANEL_GAP
@@ -233,7 +236,16 @@ internal fun LinkCard(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .matchParentSize()
+                    .clipToBounds()
                     .wrapContentWidth(if (isDelete) Alignment.End else Alignment.Start)
+                    .offset {
+                        val x = if (isDelete) {
+                            (revealPx + offset.value).coerceAtLeast(0f)
+                        } else {
+                            (offset.value - revealPx).coerceAtMost(0f)
+                        }
+                        IntOffset(x.roundToInt(), 0)
+                    }
                     .width(panelWidth)
                     .clip(RoundedCornerShape(20.dp))
                     .background(panelColor)
