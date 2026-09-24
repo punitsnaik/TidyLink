@@ -47,7 +47,7 @@ internal fun GlassSurface(
 
 /**
  * Container color for the dashboard's modal sheets. Sheets render in
- * their own window, so Haze cannot blur through them - instead
+ * their own window, so a blur cannot reach through them - instead
  * DashboardScreen blurs the content BEHIND the open sheet, and this
  * translucent container lets that blur read through the sheet like
  * frosted glass. Below API 31 Modifier.blur is a no-op, so the sheet
