@@ -59,8 +59,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.local.LinkEntity
 
@@ -182,9 +180,6 @@ fun DashboardScreen(
     val gridState = rememberLazyGridState()
     val pinnedGridState = rememberLazyGridState()
 
-    // One source feeds every glass surface (pill nav, pinned search bar).
-    val hazeState = remember { HazeState() }
-
     // Any modal window open -> the content behind it blurs (API 31+; a
     // no-op below, where the standard scrim still dims). Derived, not
     // stored: it must never go stale against a dismissed sheet.
@@ -246,7 +241,7 @@ fun DashboardScreen(
         val readerAtTop = gridState.firstVisibleItemIndex <= 1
         lastTopId = firstLinkId
         lastCount = lazyLinks.itemCount
-        if (grew && topChanged && readerAtTop) gridState.animateScrollToItem(0)
+        if (grew && topChanged && readerAtTop && query.isBlank()) gridState.animateScrollToItem(0)
     }
 
     // Changing the sort order starts the reader back at the top.
@@ -434,7 +429,7 @@ fun DashboardScreen(
         },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxSize().hazeSource(hazeState)) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 AnimatedContent(
                     targetState = currentTab,
                     transitionSpec = {
@@ -619,7 +614,6 @@ fun DashboardScreen(
                 currentTab = currentTab,
                 onSelect = { currentTab = it },
                 onAdd = { showAddDialog = true },
-                hazeState = hazeState,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()

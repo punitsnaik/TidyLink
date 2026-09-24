@@ -2,6 +2,8 @@ package dev.punit.tidylink.ui.dashboard
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -64,9 +66,6 @@ import dev.punit.tidylink.ui.LinkViewModel
 import dev.punit.tidylink.ui.theme.Motion
 import kotlinx.coroutines.launch
 
-/** Gutter shared by the grid's contentPadding and the empty-state header. */
-private val HEADER_GUTTER = 16.dp
-
 /** One in-grid header follows the content; no duplicate search field or hidden overlay. */
 @Composable
 internal fun LinksTab(
@@ -111,6 +110,9 @@ internal fun LinksTab(
         }
     }
 
+    // Header is grid item 0, so the pinned bar shows once it has scrolled away.
+    val headerScrolledAway by remember { derivedStateOf { gridState.firstVisibleItemIndex > 0 } }
+
     Box(modifier = modifier) {
         val density = LocalDensity.current
         var progressBandHeight by remember { mutableStateOf(0.dp) }
@@ -118,47 +120,32 @@ internal fun LinksTab(
         val bandExtra = if (bandVisible) progressBandHeight else 0.dp
         val contentTop = (if (uiState.isSelectionMode) 12.dp else 8.dp) + bandExtra
 
-        val listIsEmpty = lazyLinks.itemCount == 0 &&
-            lazyLinks.loadState.refresh !is LoadState.Loading
-        if (listIsEmpty) {
-            Column(modifier = Modifier.padding(top = contentTop)) {
-                header?.let {
-                    Column(modifier = Modifier.padding(horizontal = HEADER_GUTTER)) { it() }
+        LinksGrid(
+            lazyLinks = lazyLinks,
+            gridState = gridState,
+            // Three fields, not the whole state - see LinksGrid's KDoc.
+            selectedIds = uiState.selectedIds,
+            refreshingIds = uiState.refreshingIds,
+            isSelectionMode = uiState.isSelectionMode,
+            viewMode = viewMode,
+            cardRefreshSwipe = cardRefreshSwipe,
+            cardDeleteSwipe = cardDeleteSwipe,
+            onToggleSelection = viewModel::toggleSelection,
+            onRefreshLink = viewModel::refreshLink,
+            onImageFailed = viewModel::recoverThumbnail,
+            onOpenDetail = onOpenDetail,
+            onRequestDelete = onRequestDelete,
+            header = header,
+            emptyStateText = stringResource(
+                if (query.isNotBlank() || uiState.selectedCategory != null) {
+                    R.string.empty_filtered
+                } else {
+                    R.string.empty_no_links
                 }
-                EmptyState(
-                    text = stringResource(
-                        if (query.isNotBlank() || uiState.selectedCategory != null) {
-                            R.string.empty_filtered
-                        } else {
-                            R.string.empty_no_links
-                        }
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                )
-            }
-        } else {
-            LinksGrid(
-                lazyLinks = lazyLinks,
-                gridState = gridState,
-                // Three fields, not the whole state - see LinksGrid's KDoc.
-                selectedIds = uiState.selectedIds,
-                refreshingIds = uiState.refreshingIds,
-                isSelectionMode = uiState.isSelectionMode,
-                viewMode = viewMode,
-                cardRefreshSwipe = cardRefreshSwipe,
-                cardDeleteSwipe = cardDeleteSwipe,
-                onToggleSelection = viewModel::toggleSelection,
-                onRefreshLink = viewModel::refreshLink,
-                onImageFailed = viewModel::recoverThumbnail,
-                onOpenDetail = onOpenDetail,
-                onRequestDelete = onRequestDelete,
-                header = header,
-                topPadding = contentTop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+            ),
+            topPadding = contentTop,
+            modifier = Modifier.fillMaxSize(),
+        )
 
         // Progress overlays the grid just below the search bar - thin, and
         // only present while work is running.
@@ -193,6 +180,28 @@ internal fun LinksTab(
             }
         }
 
+        AnimatedVisibility(
+            visible = headerScrolledAway && !uiState.isSelectionMode,
+            enter = slideInVertically(
+                initialOffsetY = { -it },
+                animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing),
+            ) + fadeIn(animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.EnterEasing)),
+            exit = slideOutVertically(
+                targetOffsetY = { -it },
+                animationSpec = tween(Motion.DURATION_MEDIUM, easing = Motion.ExitEasing),
+            ) + fadeOut(animationSpec = tween(Motion.FADE_OUT_MS, easing = Motion.ExitEasing)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            SearchBar(
+                query = query,
+                onQueryChange = viewModel::search,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -252,6 +261,7 @@ private fun LinksHeader(
         SearchBar(
             query = query,
             onQueryChange = viewModel::search,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
