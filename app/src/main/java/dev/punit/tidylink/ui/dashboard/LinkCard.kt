@@ -471,7 +471,7 @@ private fun VisualLinkCardBody(
                     .padding(10.dp),
             ) {
                 Text(
-                    domainOf(link.url),
+                    siteNameOf(link.url),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -617,6 +617,22 @@ internal fun LinkCardBody(
                     )
                     .then(if (hasImage) Modifier else Modifier.padding(32.dp)),
             )
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp),
+            ) {
+                Text(
+                    siteNameOf(link.url),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
             thumbnailOverlay()
         }
 
@@ -626,7 +642,17 @@ internal fun LinkCardBody(
                 .weight(1f)
                 .padding(start = 7.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
         ) {
-            CategoryBadge(category = link.category)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CategoryBadge(category = link.category)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.saved_on, DateFormat.getDateInstance().format(Date(link.timestamp))),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
             Spacer(Modifier.height(6.dp))
 

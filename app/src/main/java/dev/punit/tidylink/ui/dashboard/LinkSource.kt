@@ -43,6 +43,19 @@ internal fun linkSourceOf(url: String): LinkSource {
     }
 }
 
+/**
+ * App/site name for card labels: a known service ("YouTube"), else the
+ * domain's main label capitalized ("blog.medium.com" -> "Medium").
+ */
+// ponytail: two-letter-TLD heuristic for co.uk-style suffixes, not the full public suffix list.
+internal fun siteNameOf(url: String): String {
+    linkSourceOf(url).takeUnless { it.isGeneric }?.let { return it.name }
+    val labels = UrlCanonicalizer.hostOf(url).removePrefix("www.").split('.').filter { it.isNotBlank() }
+    if (labels.size < 2 || labels.last().all { it.isDigit() }) return domainOf(url)
+    val compoundSuffix = labels.size >= 3 && labels.last().length == 2 && labels[labels.size - 2].length <= 3
+    return labels[labels.size - if (compoundSuffix) 3 else 2].replaceFirstChar { it.uppercase() }
+}
+
 /** Bare domain ("autodraft.in") - favicon lookups and title fallbacks. */
 internal fun domainOf(url: String): String =
     runCatching { url.toUri().host.orEmpty() }

@@ -52,9 +52,9 @@ internal fun GlassSurface(
  * translucent container lets that blur read through the sheet like
  * frosted glass. Below API 31 Modifier.blur is a no-op, so the sheet
  * stays opaque: translucency over sharp content would put text on
- * text. The two sheets with local state (privacy, all-categories) do
- * not trigger the blur-behind and keep the default solid container on
- * purpose.
+ * text. Sheets that do not trigger the blur-behind (privacy,
+ * all-categories, and What's New, which MainActivity shows outside the
+ * dashboard) keep the default solid container on purpose.
  *
  * The alpha is the whole glass effect and is a judgement call, so it
  * is a named constant rather than a literal. History, because the
