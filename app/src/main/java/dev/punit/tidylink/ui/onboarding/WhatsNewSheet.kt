@@ -22,7 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.punit.tidylink.R
 import dev.punit.tidylink.data.settings.OnboardingStore
-import dev.punit.tidylink.ui.dashboard.glassSheetColor
 
 /**
  * The features of [OnboardingStore.WHATS_NEW_VERSION]. Rewrite this list and
@@ -43,7 +42,6 @@ fun WhatsNewSheet(onDismiss: () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = glassSheetColor(),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
