@@ -20,4 +20,12 @@ class LinkSourceTest {
         assertEquals("Maps", linkSourceOf("https://goo.gl/maps/example").name)
         assertTrue(linkSourceOf("https://example.com/?next=amazon.in").isGeneric)
     }
+
+    @Test
+    fun `site name prefers known services then the main domain label`() {
+        assertEquals("YouTube", siteNameOf("https://m.youtube.com/watch?v=1"))
+        assertEquals("Medium", siteNameOf("https://blog.medium.com/post"))
+        assertEquals("Autodraft", siteNameOf("https://www.autodraft.in/"))
+        assertEquals("Bbc", siteNameOf("https://www.bbc.co.uk/news"))
+    }
 }
